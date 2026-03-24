@@ -3,30 +3,78 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faraj League</title>
+<title>Faraj League — Admin</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/main.css">
+<link rel="stylesheet" href="../css/main.css">
+<link rel="stylesheet" href="css/admin-overlays.css">
+<style>
+/* Admin-only: login, floating button, drawer */
+.admin-login-wrap { position:fixed;inset:0;z-index:9999;display:flex;justify-content:center;align-items:center;background:#060f1a; }
+.admin-login-card { background:#0e2535;border:1px solid rgba(200,168,75,0.3);padding:2rem;border-radius:8px;max-width:360px;width:90%; }
+.admin-login-card h1 { margin:0 0 1.5rem;font-size:1.25rem;color:#c8a84b; }
+.admin-login-card input { width:100%;padding:0.75rem;margin-bottom:1rem;border:1px solid rgba(200,168,75,0.3);border-radius:4px;background:#0a1f2e;color:#f5f0e8; }
+.admin-login-card button { width:100%;padding:0.75rem;background:#c8a84b;color:#060f1a;border:none;border-radius:4px;font-weight:700;cursor:pointer; }
+.admin-login-card button:hover { background:#d4b85c; }
+.admin-login-error { color:#f87171;font-size:0.9rem;margin-top:0.5rem; }
+.admin-float-btn { position:fixed;bottom:1.5rem;right:1.5rem;z-index:500;width:48px;height:48px;border-radius:50%;background:rgba(200,168,75,0.9);color:#060f1a;border:2px solid #c8a84b;cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.4); }
+.admin-float-btn:hover { background:#c8a84b; }
+.admin-drawer-backdrop { position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.5);display:none; }
+.admin-drawer-backdrop.open { display:block; }
+.admin-drawer { position:fixed;top:0;right:0;width:280px;max-width:90vw;height:100%;background:#0e2535;border-left:1px solid rgba(200,168,75,0.3);z-index:601;padding:1.5rem;overflow-y:auto;transform:translateX(100%);transition:transform 0.2s; }
+.admin-drawer.open { transform:translateX(0); }
+.admin-drawer h3 { margin:0 0 1rem;color:#c8a84b;font-size:1rem; }
+.admin-drawer .admin-drawer-close { position:absolute;top:1rem;right:1rem;background:none;border:none;color:#c8c0b0;font-size:1.2rem;cursor:pointer; }
+.admin-drawer-content { margin-top:2rem; }
+.admin-drawer-section { margin-bottom:1.5rem; }
+.admin-drawer-section label { display:block;margin-bottom:0.5rem;font-size:0.85rem;color:#c8c0b0; }
+.admin-drawer-section input, .admin-drawer-section select { width:100%;padding:0.5rem;background:#0a1f2e;border:1px solid rgba(200,168,75,0.3);color:#f5f0e8;border-radius:4px; }
+.admin-drawer-section button { padding:0.5rem 1rem;background:#c8a84b;color:#060f1a;border:none;border-radius:4px;cursor:pointer;font-weight:600;margin-top:0.5rem; }
+.admin-drawer-section button.secondary { background:transparent;color:#c8c0b0;border:1px solid rgba(200,168,75,0.3);margin-left:0.5rem; }
+.admin-drawer-form { display:flex;flex-direction:column;gap:1rem; }
+.admin-drawer-form-row { display:flex;align-items:center;gap:0.75rem;white-space:nowrap; }
+.admin-drawer-form-row input[type="checkbox"] { flex-shrink:0;width:1rem;height:1rem;margin:0; }
+.admin-drawer-form-label { font-size:0.9rem;color:#c8c0b0; }
+.admin-drawer-form-input { width:4rem;min-width:4rem;padding:0.5rem;background:#0a1f2e;border:1px solid rgba(200,168,75,0.3);color:#f5f0e8;border-radius:4px; }
+.admin-drawer-form-actions { display:flex;flex-direction:column;gap:0.5rem;align-items:flex-start; }
+.admin-drawer-form-actions button { margin-top:0; }
+.msg { padding:0.5rem;border-radius:4px;margin:0.5rem 0;font-size:0.85rem; }
+.msg.success { background:rgba(40,160,80,0.3);color:#4ade80; }
+.msg.error { background:rgba(200,60,60,0.3);color:#f87171; }
+</style>
 </head>
 <body>
+<div id="admin-login-view" class="admin-login-wrap">
+  <div class="admin-login-card">
+    <h1>Faraj League Admin</h1>
+    <form id="admin-login-form">
+      <input type="password" id="admin-password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit">Log in</button>
+      <div id="admin-login-error" class="admin-login-error" style="display:none;"></div>
+    </form>
+  </div>
+</div>
+
+<div id="admin-dashboard-view" style="display:none;">
 <nav>
   <div class="nav-top">
-    <div class="nav-logo" onclick="showPage('home')">Faraj League</div>
+    <div class="nav-logo" onclick="adminShowPage('home')">Faraj League</div>
     <div class="nav-spacer"></div>
-    <select class="nav-season-select" onchange="changeSeason(this.value)">
-      <option value="spring2026">Spring 2026 · Current</option>
+    <select class="nav-season-select" id="admin-season-select" onchange="adminChangeSeason(this.value)">
+      <option value="">Loading...</option>
     </select>
   </div>
   <div class="nav-tabs">
-    <button class="nav-tab active" onclick="showPage('home')">Home</button>
-    <button class="nav-tab" onclick="showPage('standings')">Standings</button>
-    <button class="nav-tab" onclick="showPage('schedule')">Schedule</button>
-    <button class="nav-tab" onclick="showPage('teams')">Teams</button>
-    <button class="nav-tab" onclick="showPage('stats')">Stats</button>
-    <button class="nav-tab" onclick="showPage('awards')">Awards</button>
-    <button class="nav-tab" onclick="showPage('draft')">Draft</button>
-    <button class="nav-tab" onclick="showPage('media')">Media</button>
-    <button class="nav-tab" onclick="showPage('about')">About</button>
-    <button class="nav-tab" onclick="showPage('sponsors')">Sponsors</button>
+    <button class="nav-tab active" data-page="home" onclick="adminShowPage('home')">Home</button>
+    <button class="nav-tab" data-page="standings" onclick="adminShowPage('standings')">Standings</button>
+    <button class="nav-tab" data-page="schedule" onclick="adminShowPage('schedule')">Schedule</button>
+    <button class="nav-tab" data-page="teams" onclick="adminShowPage('teams')">Teams</button>
+    <button class="nav-tab" data-page="players" onclick="adminShowPage('players')">Players</button>
+    <button class="nav-tab" data-page="stats" onclick="adminShowPage('stats')">Stats</button>
+    <button class="nav-tab" data-page="awards" onclick="adminShowPage('awards')">Awards</button>
+    <button class="nav-tab" data-page="draft" onclick="adminShowPage('draft')">Draft</button>
+    <button class="nav-tab" data-page="media" onclick="adminShowPage('media')">Media</button>
+    <button class="nav-tab" data-page="about" onclick="adminShowPage('about')">About</button>
+    <button class="nav-tab" data-page="sponsors" onclick="adminShowPage('sponsors')">Sponsors</button>
   </div>
 </nav>
 
@@ -39,9 +87,8 @@
     <div class="hero-bg"></div><div class="hero-geo"></div>
     <div class="hero-content">
       <div class="hero-badge" id="hero-badge">Spring 2026 · Inaugural Season</div>
-      <img src="faraj-logo.png" class="hero-league-logo" alt="Faraj League">
+      <img src="../faraj-logo.png" class="hero-league-logo" alt="Faraj League">
       <div id="title-sponsor-banner"></div>
-      <!-- <h1>Faraj League</h1> -->
       <div class="hero-divider"></div>
       <p class="hero-hadith-ar">أفْضَلُ العِبادةِ انتِظارُ الفَرَجْ</p>
       <p class="hero-hadith-en">"The best worship is awaiting the reappearance." — Holy Prophet (s.a.w.s.)</p>
@@ -102,8 +149,8 @@
     <p class="section-sub" id="schedule-section-sub">Spring 2026</p>
     <h2 class="section-title">Schedule</h2>
     <div class="section-line"></div>
-    <div class="week-dropdown-wrap"><span class="week-dropdown-label">Week</span><select class="week-dropdown" id="schedule-week-select" onchange="renderSchedule(parseInt(this.value), document.getElementById('schedule-team-filter').value || null)"></select></div>
-    <select id="schedule-team-filter" style="margin-left:1rem;" onchange="renderSchedule(parseInt(document.getElementById('schedule-week-select').value), this.value || null)"><option value="">All teams</option></select>
+    <div class="week-dropdown-wrap"><span class="week-dropdown-label">Week</span><select class="week-dropdown" id="schedule-week-select" onchange="renderSchedule(parseInt(this.value), document.getElementById('schedule-team-filter')?.value || null)"></select></div>
+    <select id="schedule-team-filter" style="margin-left:1rem;" onchange="renderSchedule(parseInt(document.getElementById('schedule-week-select')?.value), this.value || null)"><option value="">All teams</option></select>
     <div id="schedule-prev" style="margin-top:1.5rem;"></div>
     <div id="schedule-focus" style="margin-top:1.5rem;"></div>
     <div id="schedule-next" style="margin-top:1.5rem;"></div>
@@ -116,6 +163,15 @@
     <p class="section-sub" id="teams-section-sub">Spring 2026 · 6 Teams</p><h2 class="section-title">Teams & Rosters</h2><div class="section-line"></div>
     <div id="teams-grid"></div>
     <div id="roster-panel" class="roster-panel"><button class="roster-close" onclick="closeRoster()">✕</button><div id="roster-content"></div></div>
+  </div>
+  <footer><div class="footer-logo">Faraj League</div><div class="footer-hadith">"The best worship is awaiting the reappearance." — Holy Prophet (s.a.w.s.)</div><div class="footer-insta">@farajleague on Instagram</div></footer>
+</div>
+
+<div id="page-players" class="page">
+  <div class="section">
+    <p class="section-sub" id="players-section-sub">Spring 2026</p><h2 class="section-title">All Players</h2><div class="section-line"></div>
+    <p style="font-size:0.9rem;color:#c8c0b0;margin-bottom:1rem;">Manage league players. Delete test players before importing real roster. Players in the bank (unassigned) or on teams.</p>
+    <div id="players-content"><p class="loading">Loading...</p></div>
   </div>
   <footer><div class="footer-logo">Faraj League</div><div class="footer-hadith">"The best worship is awaiting the reappearance." — Holy Prophet (s.a.w.s.)</div><div class="footer-insta">@farajleague on Instagram</div></footer>
 </div>
@@ -146,19 +202,27 @@
 
 <div id="page-draft" class="page">
   <div class="section">
-    <p class="section-sub" id="draft-section-sub">Spring 2026</p><h2 class="section-title">Draft Recap</h2><div class="section-line"></div>
+    <p class="section-sub" id="draft-section-sub">Spring 2026</p><h2 class="section-title">Draft Day</h2><div class="section-line"></div>
     <div id="draft-controls-area" class="draft-controls-area">
       <div id="draft-admin-controls" class="draft-admin-controls" style="display:none;">
         <label class="draft-label">Rounds: <select id="draft-rounds-select" class="draft-select"></select></label>
         <label class="draft-label">Timer: <select id="draft-timer-select" class="draft-select"></select></label>
         <button type="button" class="draft-btn" id="draft-start-btn">Draft Start</button>
         <button type="button" class="draft-btn" id="draft-pause-btn">Pause Draft</button>
+        <button type="button" class="draft-btn" id="draft-end-btn">End Draft</button>
+        <span class="draft-nav-arrows">
+          <button type="button" class="draft-btn draft-arrow-btn" id="draft-prev-btn" title="Previous pick">←</button>
+          <button type="button" class="draft-btn draft-arrow-btn" id="draft-next-btn" title="Next pick">→</button>
+        </span>
       </div>
       <div id="draft-timer-wrap" class="draft-timer-wrap" style="display:none;"><span id="draft-timer" class="draft-timer">1:00</span></div>
     </div>
     <div id="draft-placeholder-card" class="card" style="text-align:center;padding:2.2rem;"><div id="draft-placeholder" style="font-size:0.92rem;color:#c8c0b0;font-style:italic;">Draft board coming soon.</div></div>
     <div id="draft-board-wrap"></div>
     <div id="draft-bank"></div>
+    <div id="draft-add-players-wrap" class="draft-add-players-wrap" style="display:none;">
+      <button type="button" class="draft-btn" id="draft-add-players-btn">Add Players</button>
+    </div>
   </div>
   <footer><div class="footer-logo">Faraj League</div><div class="footer-hadith">"The best worship is awaiting the reappearance." — Holy Prophet (s.a.w.s.)</div><div class="footer-insta">@farajleague on Instagram</div></footer>
 </div>
@@ -258,6 +322,29 @@ TBD</div>
   <div class="box-score-fullscreen-content" id="box-score-fullscreen-content"></div>
 </div>
 
-<script type="module" src="js/app.js"></script>
+<button type="button" class="admin-float-btn" id="admin-float-btn" title="Admin" aria-label="Admin settings">⚙</button>
+<div class="admin-drawer-backdrop" id="admin-drawer-backdrop"></div>
+<div class="admin-drawer" id="admin-drawer">
+  <button type="button" class="admin-drawer-close" id="admin-drawer-close" aria-label="Close">✕</button>
+  <h3>Admin</h3>
+  <div class="admin-drawer-content">
+    <div class="admin-drawer-section" id="admin-season-settings">
+      <label>Season settings</label>
+      <div id="admin-season-settings-content"></div>
+    </div>
+    <div class="admin-drawer-section">
+      <label>Backup</label>
+      <button type="button" id="admin-export-csv-btn">Export CSV</button>
+      <span id="admin-export-status"></span>
+    </div>
+    <div class="admin-drawer-section">
+      <button type="button" class="secondary" id="admin-logout-btn">Log out</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script type="module" src="js/admin.js"></script>
 </body>
 </html>
