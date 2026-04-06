@@ -129,6 +129,16 @@ function transformSeasonData(raw) {
     draftTeamOrder = (rawTeams || []).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map(t => t.id);
   }
 
+  /** Parsed from content_blocks.schedule_week_labels JSON; keys are week numbers as strings */
+  let scheduleWeekLabels = {};
+  try {
+    const raw = contentBlocksMap.schedule_week_labels;
+    if (raw && typeof raw === 'string') {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) scheduleWeekLabels = parsed;
+    }
+  } catch (_) {}
+
   return {
     season,
     teams,
@@ -144,6 +154,7 @@ function transformSeasonData(raw) {
     contentBlocks: contentBlocksMap,
     draftBank,
     draftTeamOrder,
+    scheduleWeekLabels,
   };
 }
 
@@ -159,12 +170,13 @@ export async function fetchSeasonData(slug) {
   return { data: transformSeasonData(raw), error: null };
 }
 
-export function deriveWeeks(scores) {
-  if (!scores?.length) return { TOTAL_WEEKS: 8, CURRENT_WEEK: 1 };
-  const maxWeek = Math.max(...scores.map(g => g.week));
-  const played = scores.filter(g => g.s1 !== '' && g.s2 !== '');
+export function deriveWeeks(scores, season) {
+  const played = (scores || []).filter(g => g.s1 !== '' && g.s2 !== '');
   const latestPlayed = played.length ? Math.max(...played.map(g => g.week)) : 1;
-  return { TOTAL_WEEKS: Math.max(8, maxWeek), CURRENT_WEEK: latestPlayed || 1 };
+  const maxGameWeek = (scores || []).length ? Math.max(...scores.map(g => g.week)) : 0;
+  const derived = Math.max(8, maxGameWeek);
+  const totalWeeks = (season?.total_weeks != null && season.total_weeks > 0) ? season.total_weeks : derived;
+  return { TOTAL_WEEKS: totalWeeks, CURRENT_WEEK: latestPlayed || 1 };
 }
 
 export function applySponsorOverrides(overrides) {

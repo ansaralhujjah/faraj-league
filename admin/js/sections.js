@@ -5,6 +5,37 @@
 
 const importRootJs = (name) => import(new URL('../../js/' + name, import.meta.url).href);
 
+/** `YYYY-MM-DDTHH:mm` in the browser's local zone, for `<input type="datetime-local">` and text fields. */
+function scheduledAtToDatetimeLocalValue(scheduledAt) {
+  if (!scheduledAt) return '';
+  const d = new Date(scheduledAt);
+  if (isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${mo}-${day}T${h}:${m}`;
+}
+
+/**
+ * Naive `YYYY-MM-DDTHH:mm` from datetime-local (no Z) is LOCAL wall time. Sent as-is, Postgres often stores it as UTC → wrong display (e.g. 10 AM → 5 AM Eastern).
+ * Strings that already include Z or a numeric offset are left unchanged.
+ */
+function scheduledAtInputToIso(value) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (s === '') return null;
+  if (/Z$/i.test(s)) return s;
+  if (/[+-]\d{2}:\d{2}$/.test(s) || /[+-]\d{4}$/.test(s)) return s;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return s;
+  const [, y, mo, d, hh, mm, ss] = m;
+  const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(hh), Number(mm), Number(ss) || 0, 0);
+  if (isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
 export async function renderSeasons(content, ctx) {
   const { adminFetch, supabase } = ctx;
   const seasonId = window.adminSeasonId;
@@ -32,6 +63,8 @@ export async function renderSeasons(content, ctx) {
   }
   const weekVal = season.current_week != null && Number.isFinite(Number(season.current_week))
     ? Number(season.current_week) : '';
+  const totalWeeksVal = season.total_weeks != null && Number.isFinite(Number(season.total_weeks))
+    ? Number(season.total_weeks) : '';
   content.innerHTML = `
     <div id="seasons-msg"></div>
     <form id="seasons-form" class="admin-drawer-form">
@@ -41,7 +74,11 @@ export async function renderSeasons(content, ctx) {
       </div>
       <div class="admin-drawer-form-row">
         <span class="admin-drawer-form-label">Current week</span>
-        <input type="number" id="seasons-current-week" value="${weekVal}" min="1" class="admin-drawer-form-input">
+        <input type="number" id="seasons-current-week" value="${weekVal}" min="0" class="admin-drawer-form-input">
+      </div>
+      <div class="admin-drawer-form-row">
+        <span class="admin-drawer-form-label">Total weeks</span>
+        <input type="number" id="seasons-total-weeks" value="${totalWeeksVal}" min="1" class="admin-drawer-form-input" placeholder="8">
       </div>
       <div class="admin-drawer-form-actions">
         <button type="submit">Save</button>
@@ -52,12 +89,14 @@ export async function renderSeasons(content, ctx) {
     e.preventDefault();
     const msg = document.getElementById('seasons-msg');
     try {
+      const totalWeeksInput = document.getElementById('seasons-total-weeks').value;
       await adminFetch('admin-seasons', {
         method: 'POST',
         body: JSON.stringify({
           id: seasonId,
           is_current: document.getElementById('seasons-is-current').checked,
-          current_week: parseInt(document.getElementById('seasons-current-week').value) || null,
+          current_week: document.getElementById('seasons-current-week').value !== '' ? parseInt(document.getElementById('seasons-current-week').value) : null,
+          total_weeks: totalWeeksInput !== '' ? parseInt(totalWeeksInput) : null,
         }),
       });
       msg.innerHTML = '<p class="msg success">Saved.</p>';
@@ -276,6 +315,10 @@ function escapeHtml(s) {
   return div.innerHTML.replace(/"/g, '&quot;');
 }
 
+function escapeHtmlAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export async function renderPlayers(content, ctx) {
   const { adminFetch, supabase } = ctx;
   const seasonId = window.adminSeasonId;
@@ -380,6 +423,10 @@ export async function renderPlayers(content, ctx) {
   };
 }
 
+/**
+ * Rebuilds the Schedule tab from `SCHEDULE_TEMPLATE` and wires admin controls.
+ * Not the same as `js/render.js` `renderSchedule(focusWeek, teamFilter)` (assigned to `window.renderSchedule` after load).
+ */
 export async function renderSchedule(content, ctx) {
   const { adminFetch, supabase } = ctx;
   const seasonId = window.adminSeasonId;
@@ -420,7 +467,7 @@ export async function renderSchedule(content, ctx) {
       away_team_id: game?.t2Id || teams[1]?.id || '',
       home_score: (game?.s1 ?? '') !== '' ? parseInt(game?.s1, 10) : null,
       away_score: (game?.s2 ?? '') !== '' ? parseInt(game?.s2, 10) : null,
-      scheduled_at: game?.scheduled_at ? String(game.scheduled_at).slice(0, 19) : '',
+      scheduled_at: scheduledAtToDatetimeLocalValue(game?.scheduled_at),
     };
     backdrop.innerHTML = `
       <div class="admin-modal" style="max-width:420px;">
@@ -433,7 +480,7 @@ export async function renderSchedule(content, ctx) {
           <label style="display:block;margin:0.5rem 0;">Away: <select id="sg-away" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;">${teams.map(t => t ? `<option value="${t.id}" ${t.id === body.away_team_id ? 'selected' : ''}>${escapeHtml(t.name || '')}</option>` : '').join('')}</select></label>
           <label style="display:block;margin:0.5rem 0;">Home score: <input type="number" id="sg-home-score" min="0" value="${body.home_score ?? ''}" style="padding:0.4rem;width:60px;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;"></label>
           <label style="display:block;margin:0.5rem 0;">Away score: <input type="number" id="sg-away-score" min="0" value="${body.away_score ?? ''}" style="padding:0.4rem;width:60px;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;"></label>
-          <label style="display:block;margin:0.5rem 0;">Scheduled at: <input type="datetime-local" id="sg-scheduled" value="${body.scheduled_at}" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;"></label>
+          <label style="display:block;margin:0.5rem 0;">Scheduled at (your local time): <input type="datetime-local" id="sg-scheduled" value="${body.scheduled_at}" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;"></label>
           <div class="admin-modal-actions" style="margin-top:1rem;">
             <button type="submit" class="btn-primary">Save</button>
             <button type="button" class="btn-secondary" id="sg-cancel">Cancel</button>
@@ -457,7 +504,7 @@ export async function renderSchedule(content, ctx) {
         away_team_id: backdrop.querySelector('#sg-away').value,
         home_score: backdrop.querySelector('#sg-home-score').value ? parseInt(backdrop.querySelector('#sg-home-score').value) : null,
         away_score: backdrop.querySelector('#sg-away-score').value ? parseInt(backdrop.querySelector('#sg-away-score').value) : null,
-        scheduled_at: backdrop.querySelector('#sg-scheduled').value || null,
+        scheduled_at: scheduledAtInputToIso(backdrop.querySelector('#sg-scheduled').value),
       };
       if (id) body.id = id; else body.season_id = seasonId;
       const msgEl = backdrop.querySelector('#sg-msg');
@@ -493,6 +540,21 @@ export async function renderSchedule(content, ctx) {
     statBtn.style.position = 'relative';
     statBtn.onclick = () => openStatSheet(game, content, ctx);
     btn.parentNode.insertBefore(statBtn, btn);
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'admin-edit-btn';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.cssText = 'position:relative;margin-right:0.5rem;background:rgba(200,80,80,0.85);';
+    removeBtn.onclick = async () => {
+      if (!game?.gameId || !confirm('Remove this game? This will also delete its stat sheet.')) return;
+      try {
+        await adminFetch('admin-games', { method: 'POST', body: JSON.stringify({ delete: true, id: game.gameId }) });
+        renderSchedule(content, ctx);
+      } catch (err) {
+        alert('Failed to remove game: ' + (err.message || 'Unknown error'));
+      }
+    };
+    btn.parentNode.insertBefore(removeBtn, btn);
   });
 
   const addGameBtn = document.createElement('button');
@@ -501,7 +563,514 @@ export async function renderSchedule(content, ctx) {
   addGameBtn.style.cssText = 'margin-top:0.5rem;padding:0.4rem 0.8rem;background:#c8a84b;color:#1a1a1a;border:none;border-radius:4px;cursor:pointer;';
   addGameBtn.onclick = () => openGameModal(null);
   const section = content.querySelector('.section');
-  if (section) section.appendChild(addGameBtn);
+  if (section) {
+    section.appendChild(addGameBtn);
+    const editFullBtn = document.createElement('button');
+    editFullBtn.type = 'button';
+    editFullBtn.textContent = 'Edit Full Schedule';
+    editFullBtn.style.cssText = 'margin-top:0.5rem;margin-left:0.5rem;padding:0.4rem 0.8rem;background:#2a4a6a;color:#e8e4e0;border:1px solid #4a7a9a;border-radius:4px;cursor:pointer;';
+    editFullBtn.onclick = () => renderFullScheduleEditor(content, ctx);
+    section.appendChild(editFullBtn);
+  }
+}
+
+/**
+ * Full-season schedule editor: all weeks; default 3 slots per week, any count (including zero), unbounded adds.
+ * Inline-editable time per game (defaults: 10am/11am/12pm for first three slots) and date per week.
+ * Matchup (teams) editable via modal. No stat sheet editing.
+ */
+export async function renderFullScheduleEditor(content, ctx) {
+  const { adminFetch, supabase } = ctx;
+  const seasonId = window.adminSeasonId;
+  if (!seasonId) {
+    alert('Select a season first.');
+    return;
+  }
+
+  const pageRoot = content.id === 'page-schedule' ? content : (content.querySelector('#page-schedule') || content);
+  const mirror = pageRoot.querySelector('#schedule-mirror-wrap');
+  const mount = pageRoot.querySelector('#schedule-full-editor-mount');
+  const mountEl = mount || content;
+
+  const { config } = await importRootJs('config.js');
+
+  // Fetch teams fresh from DB so the editor always has up-to-date team list
+  const { data: teamsRaw } = await supabase.from('teams').select('id, name').eq('season_id', seasonId).order('sort_order');
+  const teams = (teamsRaw && teamsRaw.length) ? teamsRaw : (config.DB.teams || []).filter(t => t && t.id);
+
+  // Fetch season for total_weeks
+  const { data: seasonRow } = await supabase.from('seasons').select('total_weeks, current_week').eq('id', seasonId).single();
+  let totalWeeks = (seasonRow?.total_weeks != null && seasonRow.total_weeks > 0) ? seasonRow.total_weeks : (config.TOTAL_WEEKS || 8);
+
+  const { data: games } = await supabase
+    .from('games').select('*').eq('season_id', seasonId).order('week').order('game_index');
+
+  // byWeek[weekNum][gameIndex] = game row
+  const byWeek = {};
+  (games || []).forEach(g => {
+    if (!byWeek[g.week]) byWeek[g.week] = {};
+    byWeek[g.week][g.game_index] = g;
+  });
+
+  const teamMap = {};
+  teams.forEach(t => { teamMap[t.id] = t.name; });
+
+  /** @type {Record<string, number[]>} week number key -> active game_index list */
+  let slotsByWeek = {};
+  /** @type {Record<string, string>} week key -> custom title */
+  let weekLabels = {};
+  /** @type {Record<string, string>} week key -> YYYY-MM-DD (saved even when week has no games yet) */
+  let datesByWeek = {};
+  const { data: cbMeta } = await supabase.from('content_blocks').select('key,value').eq('season_id', seasonId).in('key', ['schedule_slots_by_week', 'schedule_week_labels', 'schedule_dates_by_week']);
+  (cbMeta || []).forEach(row => {
+    try {
+      if (row.key === 'schedule_slots_by_week') slotsByWeek = JSON.parse(row.value || '{}') || {};
+      if (row.key === 'schedule_week_labels') weekLabels = JSON.parse(row.value || '{}') || {};
+      if (row.key === 'schedule_dates_by_week') datesByWeek = JSON.parse(row.value || '{}') || {};
+    } catch (_) {}
+  });
+  if (config.DB && (cbMeta || []).some(r => r.key === 'schedule_week_labels')) {
+    config.DB.scheduleWeekLabels = { ...weekLabels };
+  }
+
+  function getActiveIndices(w) {
+    const raw = slotsByWeek[String(w)] ?? slotsByWeek[w];
+    if (Array.isArray(raw)) {
+      if (raw.length === 0) return [];
+      const uniq = [...new Set(raw.map(Number).filter(n => n >= 1))].sort((a, b) => a - b);
+      if (uniq.length > 0) return uniq;
+    }
+    return [1, 2, 3];
+  }
+
+  async function persistSlots() {
+    await adminFetch('admin-content', {
+      method: 'POST',
+      body: JSON.stringify([{ key: 'schedule_slots_by_week', value: JSON.stringify(slotsByWeek), season_id: seasonId }]),
+    });
+    if (config.DB.contentBlocks) config.DB.contentBlocks.schedule_slots_by_week = JSON.stringify(slotsByWeek);
+  }
+
+  async function persistWeekLabels() {
+    await adminFetch('admin-content', {
+      method: 'POST',
+      body: JSON.stringify([{ key: 'schedule_week_labels', value: JSON.stringify(weekLabels), season_id: seasonId }]),
+    });
+    if (config.DB.contentBlocks) config.DB.contentBlocks.schedule_week_labels = JSON.stringify(weekLabels);
+    config.DB.scheduleWeekLabels = { ...(config.DB.scheduleWeekLabels || {}), ...weekLabels };
+  }
+
+  async function persistDatesByWeek() {
+    await adminFetch('admin-content', {
+      method: 'POST',
+      body: JSON.stringify([{ key: 'schedule_dates_by_week', value: JSON.stringify(datesByWeek), season_id: seasonId }]),
+    });
+    if (config.DB.contentBlocks) config.DB.contentBlocks.schedule_dates_by_week = JSON.stringify(datesByWeek);
+  }
+
+  function openEditorShell() {
+    if (mirror && mount) {
+      mirror.style.display = 'none';
+      mount.style.display = 'block';
+      mount.setAttribute('aria-hidden', 'false');
+    }
+  }
+
+  function closeEditorShell() {
+    if (mirror && mount) {
+      mount.innerHTML = '';
+      mount.style.display = 'none';
+      mount.setAttribute('aria-hidden', 'true');
+      mirror.style.display = '';
+    }
+  }
+
+  const DEFAULT_TIMES = { 1: '10:00', 2: '11:00', 3: '12:00' };
+
+  /** Default time for new games / empty slots; first three slots keep 10/11/12, rest use 10:00 */
+  function defaultTimeForSlot(gi) {
+    const g = Number(gi);
+    if (g >= 1 && g <= 3) return DEFAULT_TIMES[g];
+    return '10:00';
+  }
+
+  /** Calendar date in local TZ (for date inputs) — avoids UTC day shift near midnight */
+  function getISODate(scheduledAt) {
+    if (!scheduledAt) return '';
+    const d = new Date(scheduledAt);
+    if (isNaN(d)) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /** HH:mm for <input type="time"> — local wall clock, matches formatGameTime on public schedule */
+  function getISOTime(scheduledAt, gameIndex) {
+    if (!scheduledAt) return defaultTimeForSlot(gameIndex);
+    const d = new Date(scheduledAt);
+    if (isNaN(d)) return defaultTimeForSlot(gameIndex);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  function fmtTime(t) {
+    const [h, m] = t.split(':').map(Number);
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+  }
+
+  /**
+   * Store as ISO instant so Postgres timestamptz is correct: date+time are the admin's local wall clock.
+   * (Naive "YYYY-MM-DDTHH:mm:ss" is interpreted as UTC by the DB → 5h wrong for US Eastern vs schedule tab.)
+   */
+  function buildScheduledAt(dateStr, timeStr) {
+    if (!dateStr || !timeStr) return null;
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    const [hh, mm] = timeStr.split(':').map(Number);
+    if (!y || !mo || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
+    const dt = new Date(y, mo - 1, d, hh, mm, 0, 0);
+    return dt.toISOString();
+  }
+
+  function getWeekDate(w) {
+    const fromMap = datesByWeek[String(w)] ?? datesByWeek[w];
+    if (fromMap != null && String(fromMap).trim() !== '') return String(fromMap).trim().slice(0, 10);
+    for (const g of Object.values(byWeek[w] || {})) {
+      const d = getISODate(g.scheduled_at);
+      if (d) return d;
+    }
+    return '';
+  }
+
+  function showMsg(text, isError) {
+    const el = document.getElementById('fse-save-msg');
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = isError ? '#e88' : '#8bc4a0';
+    setTimeout(() => { if (el) el.textContent = ''; }, 3000);
+  }
+
+  async function refreshGames() {
+    const { data: fresh } = await supabase.from('games').select('*').eq('season_id', seasonId).order('week').order('game_index');
+    Object.keys(byWeek).forEach(k => delete byWeek[k]);
+    (fresh || []).forEach(g => {
+      if (!byWeek[g.week]) byWeek[g.week] = {};
+      byWeek[g.week][g.game_index] = g;
+    });
+  }
+
+  function openMatchupModal(game, week, gi) {
+    const isEdit = !!game;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'admin-modal-backdrop';
+    const teamOpts = teams.map(t => `<option value="${t.id}" ${t.id === game?.home_team_id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
+    const awayOpts = teams.map(t => `<option value="${t.id}" ${t.id === game?.away_team_id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
+    backdrop.innerHTML = `
+      <div class="admin-modal" style="max-width:360px;">
+        <h4>${isEdit ? 'Edit matchup' : 'Add game'} — Week ${week}, Game ${gi}</h4>
+        <form id="fse-matchup-form">
+          <input type="hidden" id="fse-m-id" value="${game?.id || ''}">
+          <label style="display:block;margin:0.5rem 0;">Home: <select id="fse-m-home" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;">${teamOpts}</select></label>
+          <label style="display:block;margin:0.5rem 0;">Away: <select id="fse-m-away" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;">${awayOpts}</select></label>
+          <div class="admin-modal-actions" style="margin-top:1rem;">
+            <button type="submit" class="btn-primary">Save</button>
+            <button type="button" class="btn-secondary" id="fse-m-cancel">Cancel</button>
+          </div>
+        </form>
+        <div id="fse-m-msg" class="admin-edit-msg" style="display:none;margin-top:0.5rem;"></div>
+      </div>`;
+    document.body.appendChild(backdrop);
+
+    const close = () => backdrop.remove();
+    backdrop.querySelector('#fse-m-cancel').onclick = close;
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+
+    backdrop.querySelector('#fse-matchup-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const id = backdrop.querySelector('#fse-m-id').value;
+      const homeId = backdrop.querySelector('#fse-m-home').value;
+      const awayId = backdrop.querySelector('#fse-m-away').value;
+      let scheduledAt = game?.scheduled_at || null;
+      if (!id) {
+        const weekDate =
+          document.querySelector(`.fse-date-input[data-week="${week}"]`)?.value?.trim()
+          || getWeekDate(week)
+          || (game?.scheduled_at ? getISODate(game.scheduled_at) : '');
+        scheduledAt = weekDate ? buildScheduledAt(weekDate, defaultTimeForSlot(gi)) : null;
+      }
+      const body = id
+        ? { id, home_team_id: homeId, away_team_id: awayId }
+        : { season_id: seasonId, week, game_index: gi, home_team_id: homeId, away_team_id: awayId, scheduled_at: scheduledAt };
+      const msgEl = backdrop.querySelector('#fse-m-msg');
+      try {
+        await adminFetch('admin-games', { method: 'POST', body: JSON.stringify(body) });
+        close();
+        await refreshGames();
+        renderEditor();
+      } catch (err) {
+        const text = err.message || 'Save failed.';
+        msgEl.textContent = text;
+        msgEl.className = 'admin-edit-msg error';
+        msgEl.style.display = 'block';
+        const toolbar = document.getElementById('fse-save-msg');
+        if (toolbar) {
+          toolbar.textContent = text;
+          toolbar.style.color = '#e88';
+          setTimeout(() => { if (toolbar) toolbar.textContent = ''; }, 5000);
+        }
+      }
+    };
+  }
+
+  function renderEditor() {
+    const weekRows = Array.from({ length: totalWeeks }, (_, i) => {
+      const w = i + 1;
+      const weekDate = getWeekDate(w);
+      const activeIndices = getActiveIndices(w);
+      const titleVal = weekLabels[String(w)] ?? weekLabels[w] ?? '';
+      const slots = activeIndices.map(gi => {
+        const g = byWeek[w]?.[gi];
+        const canRemoveSlot = activeIndices.length > 0;
+        const slotMinus = canRemoveSlot
+          ? `<button type="button" class="admin-edit-btn fse-slot-remove-btn" data-week="${w}" data-gi="${gi}" title="Remove this slot from the week (blocked if a game exists)" style="position:static;flex-shrink:0;width:30px;">−</button>`
+          : '<span style="width:30px;flex-shrink:0;"></span>';
+        if (g) {
+          const home = escapeHtml(teamMap[g.home_team_id] || '?');
+          const away = escapeHtml(teamMap[g.away_team_id] || '?');
+          const timeVal = getISOTime(g.scheduled_at, gi);
+          return `<div class="fse-slot" data-week="${w}" data-gi="${gi}">
+            ${slotMinus}
+            <span class="fse-game-label">Game ${gi}</span>
+            <input type="time" class="fse-time-input" value="${timeVal}" data-week="${w}" data-gi="${gi}" data-game-id="${g.id}" title="Game time">
+            <span class="fse-matchup">${home} vs ${away}</span>
+            <div class="fse-actions">
+              <button type="button" class="admin-edit-btn fse-edit-btn" data-week="${w}" data-gi="${gi}">Edit</button>
+              <button type="button" class="admin-edit-btn fse-remove-btn" data-game-id="${g.id}" style="background:rgba(200,80,80,0.85);">Remove</button>
+            </div>
+          </div>`;
+        }
+        return `<div class="fse-slot fse-slot-empty" data-week="${w}" data-gi="${gi}">
+            ${slotMinus}
+          <span class="fse-game-label">Game ${gi}</span>
+          <span class="fse-time-default">${fmtTime(defaultTimeForSlot(gi))}</span>
+          <span class="fse-matchup" style="color:#666;">—</span>
+          <button type="button" class="admin-edit-btn fse-add-btn" data-week="${w}" data-gi="${gi}" style="background:#2a5a3a;color:#8bc4a0;margin-left:auto;">+ Add</button>
+        </div>`;
+      });
+      const addSlotBtn = `<button type="button" class="admin-edit-btn fse-add-slot-btn" data-week="${w}" style="position:static;background:#2a4a6a;color:#c8e0ff;font-size:0.72rem;">+ Slot</button>`;
+      return `<div class="fse-week" data-week="${w}">
+        <div class="fse-week-header" style="flex-wrap:wrap;gap:0.5rem;">
+          <input type="text" class="fse-week-title-input" data-week="${w}" value="${escapeHtmlAttr(titleVal)}" placeholder="Week ${w} — custom title" style="flex:1;min-width:160px;background:#0e2535;border:1px solid #4a7a9a;color:#e8e4e0;padding:0.25rem 0.5rem;border-radius:3px;font-size:0.78rem;">
+          <button type="button" class="admin-edit-btn fse-week-title-save" data-week="${w}" style="position:static;font-size:0.72rem;">Save title</button>
+          ${addSlotBtn}
+          <input type="date" class="fse-date-input" data-week="${w}" value="${weekDate}" title="Week date (applies to all games this week)">
+        </div>
+        ${slots.join('')}
+      </div>`;
+    });
+
+    mountEl.innerHTML = `
+      <div id="full-schedule-editor">
+        <div class="fse-topbar">
+          <button type="button" id="fse-back-btn" style="padding:0.4rem 0.8rem;background:#444;color:#e8e4e0;border:none;border-radius:4px;cursor:pointer;">← Back</button>
+          <span style="font-family:'Cinzel',serif;font-size:0.9rem;color:#c8a84b;letter-spacing:0.1em;">EDIT FULL SCHEDULE</span>
+          <span id="fse-save-msg" style="font-size:0.8rem;"></span>
+        </div>
+        <div class="fse-weeks-row" style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.2rem;padding:0.5rem 0.75rem;background:#1a1a2a;border-radius:4px;border:1px solid #2a4a6a;">
+          <span style="font-size:0.82rem;color:#c8c0b0;">Total weeks in season:</span>
+          <input type="number" id="fse-total-weeks" value="${totalWeeks}" min="1" max="52" style="background:#0e2535;border:1px solid #4a7a9a;color:#e8e4e0;padding:0.2rem 0.5rem;border-radius:3px;font-size:0.85rem;width:60px;">
+          <button type="button" id="fse-save-weeks-btn" style="padding:0.25rem 0.75rem;background:#c8a84b;color:#1a1a1a;border:none;border-radius:3px;cursor:pointer;font-size:0.82rem;">Save</button>
+          <span id="fse-weeks-msg" style="font-size:0.8rem;"></span>
+        </div>
+        <div class="fse-grid">${weekRows.join('')}</div>
+      </div>`;
+
+    if (!document.getElementById('fse-styles')) {
+      const s = document.createElement('style');
+      s.id = 'fse-styles';
+      s.textContent = `
+        #full-schedule-editor { padding:1rem; }
+        .fse-topbar { display:flex;align-items:center;gap:1rem;margin-bottom:1.2rem; }
+        .fse-week { margin-bottom:1.4rem; }
+        .fse-week-header { display:flex;justify-content:flex-start;align-items:center;
+          padding:0.4rem 0.75rem;background:#1e3a4a;border-radius:4px 4px 0 0;
+          border-bottom:2px solid #c8a84b;margin-bottom:1px;flex-wrap:wrap;gap:0.5rem; }
+        .fse-date-input { background:#0e2535;border:1px solid #4a7a9a;color:#e8e4e0;
+          padding:0.2rem 0.5rem;border-radius:3px;font-size:0.82rem; }
+        .fse-slot { display:flex;align-items:center;gap:0.75rem;padding:0.45rem 0.75rem;
+          background:#111d27;border-bottom:1px solid #1e3a4a;min-height:40px; }
+        .fse-slot:last-child { border-radius:0 0 4px 4px;border-bottom:none; }
+        .fse-game-label { font-size:0.78rem;font-weight:600;color:#9ab8c8;min-width:50px; }
+        .fse-time-input { background:#0e2535;border:1px solid #444;color:#e8e4e0;
+          padding:0.2rem 0.4rem;border-radius:3px;font-size:0.82rem;width:96px; }
+        .fse-time-default { font-size:0.78rem;color:#556;width:96px; }
+        .fse-matchup { flex:1;font-size:0.84rem;color:#c8c0b0;text-align:center; }
+        .fse-actions { display:flex;gap:0.4rem; }
+      `;
+      document.head.appendChild(s);
+    }
+
+    const el = document.getElementById('full-schedule-editor');
+    el.querySelector('#fse-back-btn').onclick = async () => {
+      closeEditorShell();
+      if (typeof ctx.onScheduleSaved === 'function') await ctx.onScheduleSaved();
+      else await renderSchedule(content, ctx);
+    };
+
+    el.querySelector('#fse-save-weeks-btn').onclick = async () => {
+      const input = el.querySelector('#fse-total-weeks');
+      const val = parseInt(input.value);
+      const weeksMsg = el.querySelector('#fse-weeks-msg');
+      if (!val || val < 1) { weeksMsg.textContent = 'Must be at least 1.'; weeksMsg.style.color = '#e88'; return; }
+      try {
+        await adminFetch('admin-seasons', { method: 'POST', body: JSON.stringify({ id: seasonId, total_weeks: val }) });
+        totalWeeks = val;
+        weeksMsg.textContent = 'Saved.';
+        weeksMsg.style.color = '#8bc4a0';
+        setTimeout(() => { weeksMsg.textContent = ''; }, 3000);
+        renderEditor();
+      } catch (err) {
+        weeksMsg.textContent = err.message || 'Save failed.';
+        weeksMsg.style.color = '#e88';
+      }
+    };
+
+    el.querySelectorAll('.fse-date-input').forEach(input => {
+      input.addEventListener('change', async () => {
+        const w = parseInt(input.dataset.week, 10);
+        const newDate = input.value;
+        if (newDate) datesByWeek[String(w)] = newDate;
+        else delete datesByWeek[String(w)];
+        const weekGames = Object.values(byWeek[w] || {});
+        try {
+          await persistDatesByWeek();
+          for (const g of weekGames) {
+            const time = getISOTime(g.scheduled_at, g.game_index);
+            const datePart = newDate || getISODate(g.scheduled_at) || '';
+            const newAt = datePart && time ? buildScheduledAt(datePart, time) : null;
+            await adminFetch('admin-games', { method: 'POST', body: JSON.stringify({ id: g.id, scheduled_at: newAt }) });
+            g.scheduled_at = newAt;
+          }
+          showMsg('Date saved.');
+        } catch (err) { showMsg(err.message || 'Save failed.', true); }
+      });
+    });
+
+    el.querySelectorAll('.fse-time-input').forEach(input => {
+      let timeSaveTimer;
+      const persistGameTime = async () => {
+        const gameId = input.dataset.gameId;
+        const w = parseInt(input.dataset.week, 10);
+        const gi = parseInt(input.dataset.gi, 10);
+        const g = byWeek[w]?.[gi];
+        if (!g || !gameId || !input.value) return;
+        const weekDate =
+          document.querySelector(`.fse-date-input[data-week="${w}"]`)?.value?.trim()
+          || getWeekDate(w)
+          || getISODate(g.scheduled_at);
+        if (!weekDate) {
+          showMsg('Set the week date (calendar field) first, then time.', true);
+          return;
+        }
+        const newAt = buildScheduledAt(weekDate, input.value);
+        if (!newAt) {
+          showMsg('Could not save time.', true);
+          return;
+        }
+        try {
+          await adminFetch('admin-games', { method: 'POST', body: JSON.stringify({ id: gameId, scheduled_at: newAt }) });
+          g.scheduled_at = newAt;
+          showMsg('Time saved.');
+        } catch (err) { showMsg(err.message || 'Save failed.', true); }
+      };
+      input.addEventListener('change', () => {
+        clearTimeout(timeSaveTimer);
+        persistGameTime();
+      });
+      input.addEventListener('input', () => {
+        clearTimeout(timeSaveTimer);
+        timeSaveTimer = setTimeout(persistGameTime, 420);
+      });
+    });
+
+    el.querySelectorAll('.fse-edit-btn').forEach(btn => {
+      btn.onclick = () => {
+        const w = parseInt(btn.dataset.week);
+        const gi = parseInt(btn.dataset.gi);
+        openMatchupModal(byWeek[w]?.[gi], w, gi);
+      };
+    });
+
+    el.querySelectorAll('.fse-remove-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const gameId = btn.dataset.gameId;
+        if (!gameId || !confirm('Remove this game? This will also delete its stat sheet.')) return;
+        try {
+          await adminFetch('admin-games', { method: 'POST', body: JSON.stringify({ delete: true, id: gameId }) });
+          for (const w of Object.keys(byWeek)) {
+            for (const gi of Object.keys(byWeek[w])) {
+              if (byWeek[w][gi]?.id === gameId) delete byWeek[w][gi];
+            }
+          }
+          renderEditor();
+        } catch (err) { showMsg(err.message || 'Remove failed.', true); }
+      };
+    });
+
+    el.querySelectorAll('.fse-add-btn').forEach(btn => {
+      btn.onclick = () => {
+        const w = parseInt(btn.dataset.week);
+        const gi = parseInt(btn.dataset.gi);
+        openMatchupModal(null, w, gi);
+      };
+    });
+
+    el.querySelectorAll('.fse-slot-remove-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const w = parseInt(btn.dataset.week, 10);
+        const gi = parseInt(btn.dataset.gi, 10);
+        if (byWeek[w]?.[gi]) {
+          alert('Remove this game first (use Remove on the game row), then you can hide this slot.');
+          return;
+        }
+        const cur = getActiveIndices(w);
+        const next = cur.filter(x => x !== gi);
+        slotsByWeek[String(w)] = next;
+        try {
+          await persistSlots();
+          renderEditor();
+        } catch (err) { showMsg(err.message || 'Save failed.', true); }
+      };
+    });
+
+    el.querySelectorAll('.fse-week-title-save').forEach(btn => {
+      btn.onclick = async () => {
+        const w = btn.dataset.week;
+        const input = el.querySelector(`.fse-week-title-input[data-week="${w}"]`);
+        const v = input ? input.value.trim() : '';
+        weekLabels[w] = v;
+        try {
+          await persistWeekLabels();
+          showMsg('Week title saved.');
+        } catch (err) { showMsg(err.message || 'Save failed.', true); }
+      };
+    });
+
+    el.querySelectorAll('.fse-add-slot-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const w = parseInt(btn.dataset.week, 10);
+        const cur = getActiveIndices(w);
+        const nextIdx = cur.length ? Math.max(...cur) + 1 : 1;
+        slotsByWeek[String(w)] = [...cur, nextIdx].sort((a, b) => a - b);
+        try {
+          await persistSlots();
+          renderEditor();
+        } catch (err) { showMsg(err.message || 'Save failed.', true); }
+      };
+    });
+  }
+
+  openEditorShell();
+  renderEditor();
 }
 
 /**
@@ -1040,7 +1609,7 @@ export async function attachScheduleAdminOverlays(ctx) {
       away_team_id: game?.t2Id || teams[1]?.id || '',
       home_score: (game?.s1 ?? '') !== '' ? parseInt(game?.s1, 10) : null,
       away_score: (game?.s2 ?? '') !== '' ? parseInt(game?.s2, 10) : null,
-      scheduled_at: game?.scheduled_at ? String(game.scheduled_at).slice(0, 19) : '',
+      scheduled_at: scheduledAtToDatetimeLocalValue(game?.scheduled_at),
     };
     backdrop.innerHTML = `
       <div class="admin-modal" style="max-width:420px;">
@@ -1053,7 +1622,7 @@ export async function attachScheduleAdminOverlays(ctx) {
           <label style="display:block;margin:0.5rem 0;">Away: <select id="sg-away" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;">${teams.map(t => t ? `<option value="${t.id}" ${t.id === body.away_team_id ? 'selected' : ''}>${escapeHtml(t.name || '')}</option>` : '').join('')}</select></label>
           <label style="display:block;margin:0.5rem 0;">Home score: <input type="number" id="sg-home-score" min="0" value="${body.home_score ?? ''}" style="padding:0.4rem;width:60px;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;"></label>
           <label style="display:block;margin:0.5rem 0;">Away score: <input type="number" id="sg-away-score" min="0" value="${body.away_score ?? ''}" style="padding:0.4rem;width:60px;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;"></label>
-          <label style="display:block;margin:0.5rem 0;">Scheduled at: <input type="datetime-local" id="sg-scheduled" value="${body.scheduled_at}" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;"></label>
+          <label style="display:block;margin:0.5rem 0;">Scheduled at (your local time): <input type="datetime-local" id="sg-scheduled" value="${body.scheduled_at}" style="padding:0.4rem;background:#1a1a1a;border:1px solid #444;color:#e8e4e0;width:100%;"></label>
           <div class="admin-modal-actions" style="margin-top:1rem;">
             <button type="submit" class="btn-primary">Save</button>
             <button type="button" class="btn-secondary" id="sg-cancel">Cancel</button>
@@ -1077,7 +1646,7 @@ export async function attachScheduleAdminOverlays(ctx) {
         away_team_id: backdrop.querySelector('#sg-away').value,
         home_score: backdrop.querySelector('#sg-home-score').value ? parseInt(backdrop.querySelector('#sg-home-score').value) : null,
         away_score: backdrop.querySelector('#sg-away-score').value ? parseInt(backdrop.querySelector('#sg-away-score').value) : null,
-        scheduled_at: backdrop.querySelector('#sg-scheduled').value || null,
+        scheduled_at: scheduledAtInputToIso(backdrop.querySelector('#sg-scheduled').value),
       };
       if (id) body.id = id; else body.season_id = seasonId;
       const msgEl = backdrop.querySelector('#sg-msg');
@@ -1111,6 +1680,21 @@ export async function attachScheduleAdminOverlays(ctx) {
     statBtn.style.cssText = 'position:relative;margin-right:0.5rem;';
     statBtn.onclick = () => openStatSheet(game, pageSchedule, ctx, onScheduleSaved);
     btn.parentNode.insertBefore(statBtn, btn);
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'admin-edit-btn';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.cssText = 'position:relative;margin-right:0.5rem;background:rgba(200,80,80,0.85);';
+    removeBtn.onclick = async () => {
+      if (!game?.gameId || !confirm('Remove this game? This will also delete its stat sheet.')) return;
+      try {
+        await adminFetch('admin-games', { method: 'POST', body: JSON.stringify({ delete: true, id: game.gameId }) });
+        onScheduleSaved();
+      } catch (err) {
+        alert('Failed to remove game: ' + (err.message || 'Unknown error'));
+      }
+    };
+    btn.parentNode.insertBefore(removeBtn, btn);
   });
 
   const addGameBtn = section.querySelector('#admin-schedule-add-game-btn');
@@ -1121,6 +1705,16 @@ export async function attachScheduleAdminOverlays(ctx) {
       e.stopPropagation();
       openGameModal(null);
     });
+  }
+
+  if (section && !section.querySelector('#admin-full-schedule-btn')) {
+    const fullSchedBtn = document.createElement('button');
+    fullSchedBtn.type = 'button';
+    fullSchedBtn.id = 'admin-full-schedule-btn';
+    fullSchedBtn.textContent = 'Edit Full Schedule';
+    fullSchedBtn.style.cssText = 'margin-top:0.75rem;padding:0.4rem 0.8rem;background:#2a4a6a;color:#e8e4e0;border:1px solid #4a7a9a;border-radius:4px;cursor:pointer;display:block;';
+    fullSchedBtn.onclick = () => renderFullScheduleEditor(pageSchedule, ctx);
+    section.appendChild(fullSchedBtn);
   }
 }
 
@@ -1258,7 +1852,7 @@ export async function renderGames(content, ctx) {
         <label style="display:block;margin:0.5rem 0;">Away: <select id="games-away" style="padding:0.4rem;background:#2a2a2a;border:1px solid #444;color:#e8e4e0;">${(teams || []).map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select></label>
         <label style="display:block;margin:0.5rem 0;">Home score: <input type="number" id="games-home-score" min="0" style="padding:0.4rem;width:60px;background:#2a2a2a;border:1px solid #444;color:#e8e4e0;"></label>
         <label style="display:block;margin:0.5rem 0;">Away score: <input type="number" id="games-away-score" min="0" style="padding:0.4rem;width:60px;background:#2a2a2a;border:1px solid #444;color:#e8e4e0;"></label>
-        <label style="display:block;margin:0.5rem 0;">Scheduled at (ISO): <input type="text" id="games-scheduled" placeholder="2026-01-15T18:00:00Z" style="padding:0.4rem;background:#2a2a2a;border:1px solid #444;color:#e8e4e0;width:100%;"></label>
+        <label style="display:block;margin:0.5rem 0;">Scheduled at (local time, or full ISO with Z): <input type="text" id="games-scheduled" placeholder="2026-01-15T18:00" style="padding:0.4rem;background:#2a2a2a;border:1px solid #444;color:#e8e4e0;width:100%;"></label>
         <button type="submit">Save</button>
         <button type="button" id="games-cancel">Cancel</button>
       </form>
@@ -1286,7 +1880,7 @@ export async function renderGames(content, ctx) {
     document.getElementById('games-away').value = g?.away_team_id || '';
     document.getElementById('games-home-score').value = g?.home_score ?? '';
     document.getElementById('games-away-score').value = g?.away_score ?? '';
-    document.getElementById('games-scheduled').value = g?.scheduled_at ? g.scheduled_at.slice(0, 19) : '';
+    document.getElementById('games-scheduled').value = scheduledAtToDatetimeLocalValue(g?.scheduled_at);
   };
   document.getElementById('games-add-btn').onclick = () => showForm();
   document.getElementById('games-cancel').onclick = () => { wrap.style.display = 'none'; };
@@ -1411,7 +2005,7 @@ export async function renderGames(content, ctx) {
       away_team_id: document.getElementById('games-away').value,
       home_score: document.getElementById('games-home-score').value ? parseInt(document.getElementById('games-home-score').value) : null,
       away_score: document.getElementById('games-away-score').value ? parseInt(document.getElementById('games-away-score').value) : null,
-      scheduled_at: document.getElementById('games-scheduled').value || null,
+      scheduled_at: scheduledAtInputToIso(document.getElementById('games-scheduled').value),
     };
     if (id) body.id = id; else body.season_id = seasonId;
     try {
@@ -1503,71 +2097,130 @@ export async function renderStats(content, ctx) {
     const k = `${ps.player_id}-${ps.stat_definition_id}`;
     psvMap[k] = ps.value;
   });
+
+  const inputStyle = 'width:55px;padding:0.25rem 0.3rem;background:#1a2a3a;border:1px solid #444;color:#e8e4e0;border-radius:3px;font-size:0.9rem;';
+  const thStyle = 'padding:0.4rem 0.6rem;text-align:left;color:#c8a84b;font-size:0.8rem;letter-spacing:0.06em;border-bottom:1px solid rgba(200,168,75,0.2);white-space:nowrap;';
+  const tdStyle = 'padding:0.3rem 0.6rem;border-bottom:1px solid rgba(255,255,255,0.05);';
+
+  // Build stat defs list
+  const defsHtml = (statDefs || []).length
+    ? `<table style="border-collapse:collapse;width:100%;margin-bottom:0.5rem;">
+        <thead><tr>
+          <th style="${thStyle}">Name</th>
+          <th style="${thStyle}">Slug</th>
+          <th style="${thStyle}">Scope</th>
+          <th style="${thStyle}">Sort</th>
+          <th style="${thStyle}"></th>
+        </tr></thead>
+        <tbody>
+        ${(statDefs || []).map(s => `
+          <tr>
+            <td style="${tdStyle}">${escapeHtml(s.name)}</td>
+            <td style="${tdStyle};color:#c8c0b0;font-size:0.85rem;">${escapeHtml(s.slug)}</td>
+            <td style="${tdStyle};color:#c8c0b0;font-size:0.85rem;">${escapeHtml(s.scope || 'game')}</td>
+            <td style="${tdStyle};color:#c8c0b0;font-size:0.85rem;">${s.sort_order ?? 0}</td>
+            <td style="${tdStyle}"><button data-id="${escapeHtml(s.id)}" class="stat-def-del" style="padding:0.2rem 0.5rem;font-size:0.78rem;background:rgba(200,80,80,0.7);border:none;border-radius:3px;color:#fff;cursor:pointer;">Delete</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`
+    : '<p style="color:#c8c0b0;font-style:italic;font-size:0.9rem;">No stat types yet.</p>';
+
+  // Build player values table (all stats)
+  const gameDefs = (statDefs || []).filter(s => s.scope === 'game' || s.scope == null);
+  let valuesHtml = '';
+  if (!seasonId) {
+    valuesHtml = '<p style="color:#c8c0b0;font-size:0.9rem;">Select a season first.</p>';
+  } else if (!players?.length) {
+    valuesHtml = '<p style="color:#c8c0b0;font-size:0.9rem;">No players in this season.</p>';
+  } else if (!gameDefs.length) {
+    valuesHtml = '<p style="color:#c8c0b0;font-size:0.9rem;">Add stat types above first.</p>';
+  } else {
+    const defHeaders = gameDefs.map(d => `<th style="${thStyle}">${escapeHtml(d.name)}</th>`).join('');
+    const playerRows = (players || []).map(p => {
+      const defInputs = gameDefs.map(d => {
+        const val = psvMap[`${p.id}-${d.id}`] ?? '';
+        return `<td style="${tdStyle}"><input type="number" min="0" step="any" data-pid="${escapeHtml(p.id)}" data-sid="${escapeHtml(d.id)}" value="${escapeHtml(String(val))}" style="${inputStyle}" class="stat-value-input"></td>`;
+      }).join('');
+      return `<tr><td style="${tdStyle};color:#e8e4e0;">${escapeHtml(p.name)}</td>${defInputs}</tr>`;
+    }).join('');
+    valuesHtml = `<div style="overflow-x:auto;">
+      <table style="border-collapse:collapse;min-width:100%;">
+        <thead><tr><th style="${thStyle}">Player</th>${defHeaders}</tr></thead>
+        <tbody>${playerRows}</tbody>
+      </table>
+    </div>
+    <p style="font-size:0.8rem;color:#c8c0b0;margin-top:0.5rem;">These season totals are used only when no game stat sheets have been entered.</p>`;
+  }
+
   content.innerHTML = `
     <div id="stats-msg"></div>
-    <h4>Stat definitions</h4>
-    <p><button id="stats-add-def">Add stat type</button></p>
-    <ul id="stats-defs" style="list-style:none;padding:0;"></ul>
-    <h4 style="margin-top:1.5rem;">Player values (season ${seasonId ? 'selected' : '— select season'})</h4>
-    <div id="stats-values"></div>
+    <h4 style="margin:0 0 0.75rem;">Stat Types</h4>
+    <div id="stats-defs">${defsHtml}</div>
+    <form id="stats-add-form" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin-top:0.75rem;padding:0.75rem;background:rgba(200,168,75,0.05);border:1px solid rgba(200,168,75,0.15);border-radius:4px;">
+      <div style="display:flex;flex-direction:column;gap:0.25rem;">
+        <label style="font-size:0.75rem;color:#c8a84b;">Name</label>
+        <input id="stat-add-name" type="text" placeholder="e.g. Assists" style="padding:0.35rem 0.5rem;background:#1a2a3a;border:1px solid #555;color:#e8e4e0;border-radius:3px;width:120px;">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.25rem;">
+        <label style="font-size:0.75rem;color:#c8a84b;">Slug</label>
+        <input id="stat-add-slug" type="text" placeholder="e.g. ast" style="padding:0.35rem 0.5rem;background:#1a2a3a;border:1px solid #555;color:#e8e4e0;border-radius:3px;width:90px;">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.25rem;">
+        <label style="font-size:0.75rem;color:#c8a84b;">Scope</label>
+        <select id="stat-add-scope" style="padding:0.35rem 0.5rem;background:#1a2a3a;border:1px solid #555;color:#e8e4e0;border-radius:3px;">
+          <option value="game">Game (box scores)</option>
+          <option value="season">Season only</option>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.25rem;">
+        <label style="font-size:0.75rem;color:#c8a84b;">Sort</label>
+        <input id="stat-add-sort" type="number" value="${(statDefs || []).length}" min="0" style="padding:0.35rem 0.5rem;background:#1a2a3a;border:1px solid #555;color:#e8e4e0;border-radius:3px;width:60px;">
+      </div>
+      <button type="submit" style="padding:0.4rem 1rem;background:#c8a84b;color:#1a1a1a;border:none;border-radius:3px;cursor:pointer;font-weight:600;align-self:flex-end;">Add Stat</button>
+    </form>
+    <h4 style="margin:1.5rem 0 0.5rem;">Season Player Totals</h4>
+    <div id="stats-values">${valuesHtml}</div>
   `;
-  document.getElementById('stats-defs').innerHTML = (statDefs || []).map(s => `
-    <li style="padding:0.3rem 0;">${escapeHtml(s.name)} (${escapeHtml(s.slug)}) — <button data-id="${escapeHtml(s.id)}" class="stat-def-del">Delete</button></li>
-  `).join('') || '<li>None</li>';
-  document.getElementById('stats-add-def').onclick = async () => {
-    const name = prompt('Stat name (e.g. Points):');
-    const slug = prompt('Slug (e.g. points):');
-    const scopeInput = prompt('Scope: game (stat sheets) or season (aggregates only). Leave blank for game:');
-    const scope = (scopeInput || 'game').toLowerCase() === 'season' ? 'season' : 'game';
-    if (!name || !slug) return;
+
+  // Auto-generate slug from name
+  document.getElementById('stat-add-name').addEventListener('input', function () {
+    const slug = this.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    document.getElementById('stat-add-slug').value = slug;
+  });
+
+  document.getElementById('stats-add-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('stat-add-name').value.trim();
+    const slug = document.getElementById('stat-add-slug').value.trim();
+    const scope = document.getElementById('stat-add-scope').value;
+    const sort_order = parseInt(document.getElementById('stat-add-sort').value) || 0;
+    if (!name || !slug) { document.getElementById('stats-msg').innerHTML = '<p class="msg error">Name and slug are required.</p>'; return; }
     try {
-      await adminFetch('admin-stats', { method: 'POST', body: JSON.stringify({ type: 'definition', name, slug, scope }) });
+      await adminFetch('admin-stats', { method: 'POST', body: JSON.stringify({ type: 'definition', name, slug, scope, sort_order }) });
       renderStats(content, ctx);
-    } catch (e) { document.getElementById('stats-msg').innerHTML = `<p class="msg error">${e.message}</p>`; }
-  };
+    } catch (e2) { document.getElementById('stats-msg').innerHTML = `<p class="msg error">${e2.message}</p>`; }
+  });
+
   document.getElementById('stats-defs').querySelectorAll('.stat-def-del').forEach(btn => {
     btn.onclick = async () => {
-      if (!confirm('Delete this stat type?')) return;
+      if (!confirm('Delete this stat type? All recorded values for it will be lost.')) return;
       try {
         await adminFetch('admin-stats', { method: 'POST', body: JSON.stringify({ type: 'definition', delete: true, id: btn.dataset.id }) });
         renderStats(content, ctx);
-      } catch (e) { document.getElementById('stats-msg').innerHTML = `<p class="msg error">${e.message}</p>`; }
+      } catch (e2) { document.getElementById('stats-msg').innerHTML = `<p class="msg error">${e2.message}</p>`; }
     };
   });
-  if (seasonId && players?.length && statDefs?.length) {
-    const pointsDef = statDefs.find(s => s.slug === 'points');
-    if (pointsDef) {
-      document.getElementById('stats-values').innerHTML = `
-        <table style="border-collapse:collapse;"><tr><th>Player</th><th>Points</th></tr>
-        ${(players || []).map(p => {
-          const k = `${p.id}-${pointsDef.id}`;
-          const val = psvMap[k] ?? '';
-          const safeVal = escapeHtml(String(val));
-          return `<tr><td>${escapeHtml(p.name)}</td><td><input type="number" data-pid="${escapeHtml(p.id)}" data-sid="${escapeHtml(pointsDef.id)}" value="${safeVal}" style="width:60px;padding:0.3rem;background:#2a2a2a;border:1px solid #444;color:#e8e4e0;" class="stat-value-input"></td></tr>`;
-        }).join('')}
-        </table>
-      `;
-      document.getElementById('stats-values').querySelectorAll('.stat-value-input').forEach(input => {
-        input.addEventListener('change', async function () {
-          try {
-            await adminFetch('admin-stats', {
-              method: 'POST',
-              body: JSON.stringify({
-                type: 'value',
-                player_id: this.dataset.pid,
-                stat_definition_id: this.dataset.sid,
-                value: parseFloat(this.value) || 0,
-              }),
-            });
-          } catch (e) { document.getElementById('stats-msg').innerHTML = `<p class="msg error">${e.message}</p>`; }
+
+  document.querySelectorAll('.stat-value-input').forEach(input => {
+    input.addEventListener('change', async function () {
+      try {
+        await adminFetch('admin-stats', {
+          method: 'POST',
+          body: JSON.stringify({ type: 'value', player_id: this.dataset.pid, stat_definition_id: this.dataset.sid, value: parseFloat(this.value) || 0 }),
         });
-      });
-    } else {
-      document.getElementById('stats-values').innerHTML = '<p>Add a "points" stat definition first.</p>';
-    }
-  } else {
-    document.getElementById('stats-values').innerHTML = '<p>Select a season with players.</p>';
-  }
+      } catch (e2) { document.getElementById('stats-msg').innerHTML = `<p class="msg error">${e2.message}</p>`; }
+    });
+  });
 }
 
 export async function renderSponsors(content, ctx) {

@@ -158,10 +158,10 @@ async function adminShowPage(id) {
 async function loadAdminSeason(slug) {
   const dataRes = await fetchSeasonData(slug);
   if (dataRes.error || !dataRes.data) return false;
-  const { season, teams, scores, awards, stats, gameStatValues, statDefinitions, sponsorOverrides, sponsors, mediaItems, mediaSlots, contentBlocks, draftBank, draftTeamOrder } = dataRes.data;
-  config.DB = { teams, scores, awards, stats, gameStatValues: gameStatValues || {}, statDefinitions: statDefinitions || [], sponsors: sponsors || [], mediaItems: mediaItems || [], mediaSlots: mediaSlots || {}, contentBlocks: contentBlocks || {}, draftBank: draftBank || [], draftTeamOrder: draftTeamOrder || [] };
+  const { season, teams, scores, awards, stats, gameStatValues, statDefinitions, sponsorOverrides, sponsors, mediaItems, mediaSlots, contentBlocks, draftBank, draftTeamOrder, scheduleWeekLabels } = dataRes.data;
+  config.DB = { teams, scores, awards, stats, gameStatValues: gameStatValues || {}, statDefinitions: statDefinitions || [], sponsors: sponsors || [], mediaItems: mediaItems || [], mediaSlots: mediaSlots || {}, contentBlocks: contentBlocks || {}, draftBank: draftBank || [], draftTeamOrder: draftTeamOrder || [], scheduleWeekLabels: scheduleWeekLabels || {} };
   applySponsorOverrides(sponsorOverrides);
-  const derived = deriveWeeks(scores);
+  const derived = deriveWeeks(scores, season);
   config.TOTAL_WEEKS = derived.TOTAL_WEEKS;
   config.CURRENT_WEEK = season?.current_week != null ? season.current_week : derived.CURRENT_WEEK;
   config.currentSeasonLabel = season?.label || 'Spring 2026';
@@ -415,7 +415,6 @@ async function initAdminOverlays() {
   });
 
   // Season awards: champ, mvp, scoring — editable to add player names
-  // Skip Edit overlay when "Season in progress" (user said that's unnecessary); show Add instead
   ['sa-champ', 'sa-mvp', 'sa-scoring'].forEach(id => {
     const el = document.getElementById(id);
     if (!el || el.dataset.adminOverlayAttached) return;

@@ -16,7 +16,7 @@ export async function loadAdminSeasonData(slug) {
   const dataRes = await fetchSeasonData(slug);
   if (dataRes.error || !dataRes.data) return null;
 
-  const { season, teams, scores, awards, stats, gameStatValues, statDefinitions, sponsorOverrides, mediaItems, mediaSlots, contentBlocks } = dataRes.data;
+  const { season, teams, scores, awards, stats, gameStatValues, statDefinitions, sponsorOverrides, mediaItems, mediaSlots, contentBlocks, scheduleWeekLabels } = dataRes.data;
 
   config.DB = {
     teams,
@@ -28,11 +28,12 @@ export async function loadAdminSeasonData(slug) {
     mediaItems: mediaItems || [],
     mediaSlots: mediaSlots || {},
     contentBlocks: contentBlocks || {},
+    scheduleWeekLabels: scheduleWeekLabels || {},
   };
 
   applySponsorOverrides(sponsorOverrides);
 
-  const derived = deriveWeeks(scores);
+  const derived = deriveWeeks(scores, season);
   config.TOTAL_WEEKS = derived.TOTAL_WEEKS;
   config.CURRENT_WEEK = season?.current_week != null ? season.current_week : derived.CURRENT_WEEK;
   config.currentSeasonLabel = season?.label || 'Spring 2026';

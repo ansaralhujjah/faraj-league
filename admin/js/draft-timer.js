@@ -213,14 +213,15 @@ export async function advancePickManual(adminFetch) {
 }
 
 /**
- * Start the draft from the current pick (or 0). Resets timer to 60s.
+ * Start the draft from pick 0 (always resets to the first team on the left).
+ * Use Resume (from Pause) to continue mid-draft.
  */
 export async function startDraft(adminFetch) {
   const state = getState();
   state.running = true;
   state.paused = false;
+  state.currentPick = 0;
   state.remaining = getTimerSeconds();
-  if (state.currentPick >= getTotalPicks()) state.currentPick = 0;
   stopTick();
   await saveState(state, adminFetch);
   notifyChange();
@@ -240,12 +241,15 @@ export async function pauseDraft(adminFetch) {
 }
 
 /**
- * End the draft entirely. Stops the timer and clears DRAFTING NOW.
+ * End the draft entirely. Stops the timer, clears DRAFTING NOW, and resets
+ * to pick 0 so the next Start Draft begins from the first team.
  */
 export async function endDraft(adminFetch) {
   const state = getState();
   state.running = false;
   state.paused = false;
+  state.currentPick = 0;
+  state.remaining = getTimerSeconds();
   stopTick();
   await saveState(state, adminFetch);
   notifyChange();
@@ -302,8 +306,14 @@ export async function setRounds(rounds, adminFetch) {
  * Set timer length in seconds and persist.
  */
 export async function setTimerSeconds(seconds, adminFetch) {
+  const secs = Math.max(1, Math.min(300, parseInt(seconds, 10) || 60));
+  // Optimistic local update so getTimerSeconds() returns the new value immediately,
+  // even before the async DB save completes.
+  if (config.DB?.contentBlocks) {
+    config.DB.contentBlocks.draft_timer_seconds = String(secs);
+  }
   const state = getState();
-  state.timerSeconds = Math.max(1, Math.min(300, parseInt(seconds, 10) || 60));
+  state.timerSeconds = secs;
   await saveState(state, adminFetch);
   notifyChange();
 }

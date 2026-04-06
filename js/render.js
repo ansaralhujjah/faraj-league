@@ -162,12 +162,13 @@ export function renderHome() {
   const wp = getWeeksPlayed();
   const weeksPlayedEl = document.getElementById('weeks-played');
   if (weeksPlayedEl) weeksPlayedEl.textContent = wp;
-  // Show previous week on homepage (last completed week); use current_week from admin
-  const displayWeek = Math.max(1, config.CURRENT_WEEK - 1);
+  // Week 0 = show week 1 as upcoming; otherwise show previous week's results
+  const upcoming = config.CURRENT_WEEK === 0;
+  const displayWeek = upcoming ? 1 : Math.max(1, config.CURRENT_WEEK - 1);
   const weekGames = config.DB.scores.filter(g => g.week === displayWeek);
   const wa = config.DB.awards.find(a => a.week === displayWeek) || {};
   const t = config.DB.teams;
-  const subLabel = displayWeek < config.CURRENT_WEEK ? 'Previous' : (wp > 0 ? 'Results' : 'Upcoming');
+  const subLabel = upcoming ? 'Upcoming' : (displayWeek < config.CURRENT_WEEK ? 'Previous' : (wp > 0 ? 'Results' : 'Upcoming'));
   const matchupSub = document.getElementById('home-matchup-sub');
   const awardsSub = document.getElementById('home-awards-sub');
   if (matchupSub) matchupSub.textContent = `Week ${displayWeek} · ${subLabel}`;
@@ -230,6 +231,22 @@ function formatScheduledAt(scheduledAt) {
   const d = new Date(scheduledAt);
   if (isNaN(d.getTime())) return 'TBD';
   return d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+const DEFAULT_GAME_TIMES = { 1: '10:00 AM', 2: '11:00 AM', 3: '12:00 PM' };
+
+function formatGameTime(scheduledAt, gameIndex) {
+  if (!scheduledAt) return DEFAULT_GAME_TIMES[gameIndex] || '10:00 AM';
+  const d = new Date(scheduledAt);
+  if (isNaN(d.getTime())) return DEFAULT_GAME_TIMES[gameIndex] || '10:00 AM';
+  return d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function formatGameDate(scheduledAt) {
+  if (!scheduledAt) return '';
+  const d = new Date(scheduledAt);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function renderBoxScore(game, teams, gameStatValues, statDefinitions) {
@@ -322,6 +339,12 @@ export function closeBoxScoreFullscreen() {
   document.body.style.overflow = '';
 }
 
+function scheduleWeekTitle(w) {
+  const labels = config.DB.scheduleWeekLabels || {};
+  const c = labels[String(w)] ?? labels[w];
+  return (c != null && String(c).trim() !== '') ? String(c).trim() : `Week ${w}`;
+}
+
 export function renderSchedule(focusWeek, teamFilter) {
   const prevEl = document.getElementById('schedule-prev');
   const focusEl = document.getElementById('schedule-focus');
@@ -334,7 +357,7 @@ export function renderSchedule(focusWeek, teamFilter) {
   const renderWeek = (w, label) => {
     let games = (config.DB.scores || []).filter(g => g.week === w);
     if (teamFilter) games = games.filter(g => g.t1 === teamFilter || g.t2 === teamFilter);
-    if (!games.length) return `<div class="card" style="text-align:center;padding:1.4rem;margin-bottom:0.9rem;"><div style="font-size:0.9rem;color:#c8c0b0;font-style:italic;">Week ${w} — No games${teamFilter ? ' for this team' : ''}.</div></div>`;
+    if (!games.length) return `<div class="card" style="text-align:center;padding:1.4rem;margin-bottom:0.9rem;"><div style="font-size:0.9rem;color:#c8c0b0;font-style:italic;">${scheduleWeekTitle(w)} — No games${teamFilter ? ' for this team' : ''}.</div></div>`;
     const cards = games.map(g => {
       const played = g.s1 !== '' && g.s2 !== '';
       const s1 = parseInt(g.s1 || 0), s2 = parseInt(g.s2 || 0), w1 = played && s1 > s2, w2 = played && s2 > s1;
@@ -343,8 +366,9 @@ export function renderSchedule(focusWeek, teamFilter) {
       if (played) {
         cardInner = `<div class="matchup-game-label">Game ${g.game || 1}</div><div class="matchup-row"><span class="matchup-team ${w1 ? 'winner' : ''}">${g.t1}</span><span class="matchup-score ${w1 ? 'winner' : ''}">${g.s1}</span></div><div class="matchup-mid"></div><div class="matchup-row"><span class="matchup-team ${w2 ? 'winner' : ''}">${g.t2}</span><span class="matchup-score ${w2 ? 'winner' : ''}">${g.s2}</span></div><div class="winner-tag">${s1 > s2 ? g.t1 + ' Win' : g.t2 + ' Win'}</div>`;
       } else {
-        const timeStr = formatScheduledAt(g.scheduled_at);
-        cardInner = `<div class="matchup-game-label">Game ${g.game || 1}</div><div class="matchup-row"><span class="matchup-team">${g.t1}</span></div><div class="matchup-mid"></div><div class="matchup-row"><span class="matchup-team">${g.t2}</span></div><div class="winner-tag" style="color:#c8c0b0;font-style:italic">${timeStr}</div>`;
+        const timeStr = formatGameTime(g.scheduled_at, g.game || 1);
+        const dateStr = formatGameDate(g.scheduled_at);
+        cardInner = `<div class="matchup-game-label" style="display:flex;justify-content:space-between;align-items:center;"><span>Game ${g.game || 1}</span><span style="font-weight:normal;letter-spacing:0;">${timeStr}</span><span style="font-weight:normal;letter-spacing:0;">${dateStr}</span></div><div class="matchup-row"><span class="matchup-team">${g.t1}</span></div><div class="matchup-mid"></div><div class="matchup-row"><span class="matchup-team">${g.t2}</span></div>`;
       }
       return `<div class="matchup-card"><div class="matchup-card-main">${cardInner}</div><button type="button" class="schedule-expand-btn" data-game-id="${gameId}" style="margin-top:0.5rem;background:transparent;border:none;color:#c8a84b;font-size:0.8rem;cursor:pointer;padding:0;">View box score</button></div>`;
     });
@@ -362,9 +386,9 @@ export function renderSchedule(focusWeek, teamFilter) {
     });
   }
 
-  if (focusWeek > 1) prevEl.innerHTML = renderWeek(focusWeek - 1, `Week ${focusWeek - 1} — Previous`);
-  focusEl.innerHTML = renderWeek(focusWeek, `Week ${focusWeek}${focusWeek === config.CURRENT_WEEK ? ' — Current' : ''}`);
-  if (focusWeek < config.TOTAL_WEEKS) nextEl.innerHTML = renderWeek(focusWeek + 1, `Week ${focusWeek + 1} — Next`);
+  if (focusWeek > 1) prevEl.innerHTML = renderWeek(focusWeek - 1, `${scheduleWeekTitle(focusWeek - 1)} — Previous`);
+  focusEl.innerHTML = renderWeek(focusWeek, `${scheduleWeekTitle(focusWeek)}${focusWeek === config.CURRENT_WEEK ? ' — Current' : ''}`);
+  if (focusWeek < config.TOTAL_WEEKS) nextEl.innerHTML = renderWeek(focusWeek + 1, `${scheduleWeekTitle(focusWeek + 1)} — Next`);
 }
 
 export function renderScores(week) {
@@ -437,7 +461,7 @@ export function toggleRoster(id) {
   const captainMatch = roster.find(p => (t.captain || '').trim() && String(p.name || '').trim().toLowerCase() === (t.captain || '').trim().toLowerCase());
   const captain = captainMatch ? captainMatch.name : '';
   const captainNorm = captain.toLowerCase();
-  const others = (t.players || []).filter(p => String(p).trim().toLowerCase() !== captainNorm);
+  const others = (t.players || []).filter(p => String(p).trim().toLowerCase() !== captainNorm).sort((a, b) => a.localeCompare(b));
   const rosterList = captain ? [captain, ...others] : others;
   const capDisplay = captain || '—';
   if (rosterContent) rosterContent.innerHTML = `<div style="margin-bottom:0.9rem;"><div style="font-family:'Cinzel',serif;font-size:1rem;color:#c8a84b">${t.name}</div><div style="font-size:0.8rem;color:#2fa89a;letter-spacing:0.1em;text-transform:uppercase;margin-top:0.12rem">${confLabel(t.conf)} · Capt: ${capDisplay} · ${rec[t.name] ? rec[t.name].w + '-' + rec[t.name].l : '0-0'}</div></div>${rosterList.map((p, i) => '<div class="roster-player"><span class="roster-num">' + (i + 1) + '</span>' + p + '</div>').join('')}`;
@@ -453,11 +477,29 @@ export function closeRoster() {
 }
 
 export function renderStats() {
-  const tbody = document.getElementById('stats-body');
-  if (!tbody) return;
-  const rows = config.DB.stats.filter(s => s.total > 0).sort((a, b) => b.total - a.total);
-  if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:1.8rem;font-style:italic;color:#c8c0b0;font-size:0.9rem;">No stats yet — season hasn't started.</td></tr>`; return; }
-  tbody.innerHTML = rows.map((r, i) => `<tr><td style="padding:0.7rem 1rem;color:#c8c0b0;font-size:0.82rem">${i + 1}</td><td style="padding:0.7rem 1rem;color:#f5f0e8">${r.name}</td><td style="padding:0.7rem 1rem">${r.team}</td><td style="padding:0.7rem 1rem">${r.gp}</td><td style="padding:0.7rem 1rem;color:#c8a84b">${r.gp ? (r.total / r.gp).toFixed(1) : '0.0'}</td><td style="padding:0.7rem 1rem">${r.total}</td></tr>`).join('');
+  const wrap = document.getElementById('stats-table-wrap');
+  if (!wrap) return;
+  const defs = config.DB.statDefinitions || [];
+  const rows = (config.DB.stats || [])
+    .filter(s => s.total > 0 || Object.values(s.statValues || {}).some(v => v > 0))
+    .sort((a, b) => b.total - a.total);
+  const sub = document.getElementById('stats-section-sub');
+  if (sub) sub.textContent = config.currentSeasonLabel + (defs.length > 1 ? '' : ' · Points Only');
+  const colspan = 4 + Math.max(defs.length, 1);
+  if (!defs.length) {
+    wrap.innerHTML = `<div style="padding:1.8rem;text-align:center;font-style:italic;color:#c8c0b0;font-size:0.9rem;">No stat types defined — add them in the admin Stats tab.</div>`;
+    return;
+  }
+  const theadCells = `<th style="padding:0.75rem 1rem;width:36px">#</th><th style="padding:0.75rem 1rem;">Player</th><th style="padding:0.75rem 1rem;">Team</th><th style="padding:0.75rem 1rem;">GP</th>${defs.map(d => `<th style="padding:0.75rem 1rem;">${escapeHtmlAttr(d.name)}</th>`).join('')}`;
+  const noData = `<tr><td colspan="${colspan}" style="text-align:center;padding:1.8rem;font-style:italic;color:#c8c0b0;font-size:0.9rem;">No stats yet — season hasn't started.</td></tr>`;
+  const tbodyRows = rows.map((r, i) => {
+    const defCells = defs.map(d => {
+      const val = r.statValues?.[d.id] ?? 0;
+      return `<td style="padding:0.7rem 1rem${d.slug === 'points' ? ';color:#c8a84b' : ''}">${val > 0 ? val : '—'}</td>`;
+    }).join('');
+    return `<tr><td style="padding:0.7rem 1rem;color:#c8c0b0;font-size:0.82rem">${i + 1}</td><td style="padding:0.7rem 1rem;color:#f5f0e8">${r.name}</td><td style="padding:0.7rem 1rem">${r.team}</td><td style="padding:0.7rem 1rem">${r.gp}</td>${defCells}</tr>`;
+  }).join('');
+  wrap.innerHTML = `<table class="standings-table" style="width:100%;"><thead><tr style="background:rgba(200,168,75,0.04);">${theadCells}</tr></thead><tbody>${rows.length ? tbodyRows : noData}</tbody></table>`;
 }
 
 export function renderAwards(week) {

@@ -23,7 +23,6 @@
     <button class="nav-tab" onclick="showPage('teams')">Teams</button>
     <button class="nav-tab" onclick="showPage('stats')">Stats</button>
     <button class="nav-tab" onclick="showPage('awards')">Awards</button>
-    <button class="nav-tab" onclick="showPage('draft')">Draft</button>
     <button class="nav-tab" onclick="showPage('media')">Media</button>
     <button class="nav-tab" onclick="showPage('about')">About</button>
     <button class="nav-tab" onclick="showPage('sponsors')">Sponsors</button>
@@ -123,7 +122,7 @@
 <div id="page-stats" class="page">
   <div class="section">
     <p class="section-sub" id="stats-section-sub">Spring 2026 · Points Only</p><h2 class="section-title" id="stats-page-title">Player Stats</h2><div class="section-line"></div>
-    <div class="card" style="padding:0;"><table class="standings-table" style="width:100%;"><thead><tr style="background:rgba(200,168,75,0.04);"><th style="padding:0.75rem 1rem;width:36px">#</th><th style="padding:0.75rem 1rem;">Player</th><th style="padding:0.75rem 1rem;">Team</th><th style="padding:0.75rem 1rem;">GP</th><th style="padding:0.75rem 1rem;">PPG</th><th style="padding:0.75rem 1rem;">Total</th></tr></thead><tbody id="stats-body"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table></div>
+    <div id="stats-table-wrap" class="card" style="padding:0;"><div class="loading" style="padding:1.8rem;text-align:center;">Loading...</div></div>
   </div>
   <footer><div class="footer-logo">Faraj League</div><div class="footer-hadith">"The best worship is awaiting the reappearance." — Holy Prophet (s.a.w.s.)</div><div class="footer-insta">@farajleague on Instagram</div></footer>
 </div>
@@ -144,24 +143,6 @@
   <footer><div class="footer-logo">Faraj League</div><div class="footer-hadith">"The best worship is awaiting the reappearance." — Holy Prophet (s.a.w.s.)</div><div class="footer-insta">@farajleague on Instagram</div></footer>
 </div>
 
-<div id="page-draft" class="page">
-  <div class="section">
-    <p class="section-sub" id="draft-section-sub">Spring 2026</p><h2 class="section-title">Draft Recap</h2><div class="section-line"></div>
-    <div id="draft-controls-area" class="draft-controls-area">
-      <div id="draft-admin-controls" class="draft-admin-controls" style="display:none;">
-        <label class="draft-label">Rounds: <select id="draft-rounds-select" class="draft-select"></select></label>
-        <label class="draft-label">Timer: <select id="draft-timer-select" class="draft-select"></select></label>
-        <button type="button" class="draft-btn" id="draft-start-btn">Draft Start</button>
-        <button type="button" class="draft-btn" id="draft-pause-btn">Pause Draft</button>
-      </div>
-      <div id="draft-timer-wrap" class="draft-timer-wrap" style="display:none;"><span id="draft-timer" class="draft-timer">1:00</span></div>
-    </div>
-    <div id="draft-placeholder-card" class="card" style="text-align:center;padding:2.2rem;"><div id="draft-placeholder" style="font-size:0.92rem;color:#c8c0b0;font-style:italic;">Draft board coming soon.</div></div>
-    <div id="draft-board-wrap"></div>
-    <div id="draft-bank"></div>
-  </div>
-  <footer><div class="footer-logo">Faraj League</div><div class="footer-hadith">"The best worship is awaiting the reappearance." — Holy Prophet (s.a.w.s.)</div><div class="footer-insta">@farajleague on Instagram</div></footer>
-</div>
 
 <div id="page-media" class="page">
   <div class="section">
