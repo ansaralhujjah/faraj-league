@@ -3,8 +3,8 @@
  */
 
 import { config } from './config.js';
-import { confLabel, confShortLabel, getConferences, getBasePath, motmLabel, akhlaqLabel, statsTitle } from './config.js';
-import { calcStandings as calcStandingsPure } from '../lib/standings.js';
+import { confLabel, confShortLabel, getConferences, getBasePath, motmLabel, akhlaqLabel, statsTitle, highlightSponsor } from './config.js';
+import { calcStandings as calcStandingsPure, calcSeeds as calcSeedsPure } from '../lib/standings.js';
 
 let activeTeam = null;
 
@@ -38,13 +38,13 @@ export function renderAll(adminMode = false) {
   conferences.forEach((c, i) => {
     const slug = String(c.id || c.name || '').toLowerCase().replace(/\W+/g, '_') || 'conf_' + i;
     const hdr = document.getElementById('conf-header-' + slug);
-    if (hdr) hdr.textContent = confLabel(c.id || c.name);
+    if (hdr) hdr.innerHTML = confLabel(c.id || c.name);
   });
-  if (conferences[0]) set('about-mecca-label', confLabel(conferences[0].id || conferences[0].name));
-  if (conferences[1]) set('about-medina-label', confLabel(conferences[1].id || conferences[1].name));
+  if (conferences[0]) { const el = document.getElementById('about-mecca-label'); if (el) el.innerHTML = confLabel(conferences[0].id || conferences[0].name); }
+  if (conferences[1]) { const el = document.getElementById('about-medina-label'); if (el) el.innerHTML = confLabel(conferences[1].id || conferences[1].name); }
   if (conferences[0]) set('sponsors-conf-label-mecca', confShortLabel(conferences[0].id || conferences[0].name));
   if (conferences[1]) set('sponsors-conf-label-medina', confShortLabel(conferences[1].id || conferences[1].name));
-  set('stats-page-title', statsTitle());
+  { const el = document.getElementById('stats-page-title'); if (el) el.innerHTML = statsTitle(); }
   set('home-standings-title', 'Standings');
   set('home-standings-sub', config.currentSeasonLabel);
   set('standings-section-sub', config.currentSeasonLabel);
@@ -183,8 +183,9 @@ export function renderHome() {
   const homeStandings = document.getElementById('home-standings');
   if (!homeStandings) return;
   homeStandings.innerHTML = (getConferences().map(c => c.id || c.name)).map(conf => {
-    const rows = config.DB.teams.filter(t => t.conf === conf).map(t => ({ ...rec[t.name] || { w: 0, l: 0 }, name: t.name })).sort((a, b) => b.w - a.w || (b.pf - b.pa) - (a.pf - a.pa));
-    return `<div class="home-conf-block"><div class="home-conf-title">${confLabel(conf)}</div>${rows.map((r, i) => `<div class="home-stand-row"><span class="home-stand-rank">${i + 1}</span><span class="home-stand-name">${r.name}</span><span class="home-stand-rec">${r.w}-${r.l}</span></div>`).join('')}</div>`;
+    const idA = (id) => typeof id === 'string' ? `'${String(id).replace(/'/g, "\\'")}'` : id;
+    const rows = config.DB.teams.filter(t => t.conf === conf).map(t => ({ ...rec[t.name] || { w: 0, l: 0 }, name: t.name, id: t.id })).sort((a, b) => b.w - a.w || (b.pf - b.pa) - (a.pf - a.pa));
+    return `<div class="home-conf-block"><div class="home-conf-title">${confLabel(conf)}</div>${rows.map((r, i) => `<div class="home-stand-row" onclick="goToTeam(${idA(r.id)})"><span class="home-stand-rank">${i + 1}</span><span class="home-stand-name">${r.name}</span><span class="home-stand-rec">${r.w}-${r.l}</span></div>`).join('')}</div>`;
   }).join('');
 
   const games = weekGames.length ? weekGames : [
@@ -196,8 +197,8 @@ export function renderHome() {
   const homeAwards = document.getElementById('home-awards');
   if (homeMatchups) homeMatchups.innerHTML = games.map((g, i) => buildMatchupCard({ ...g, game: g.game || i + 1 }, g.gameId || '')).join('');
   if (homeAwards) homeAwards.innerHTML = `
-    <div class="award-card akhlaq-card"><div class="akhlaq-inner"><div class="akhlaq-medal">☽</div><div><div class="award-label">${akhlaqLabel(displayWeek)}</div><div class="award-winner">${wa.akhlaq || pending()}</div><div class="award-winner-sub">Exemplary character & brotherhood</div></div></div></div>
-    ${games.map((g, i) => `<div class="award-card"><div class="award-label">${motmLabel(g.game || i + 1)}</div><div class="award-game">${g.t1} vs ${g.t2}</div><div class="award-winner">${wa['motm' + (g.game || i + 1)] || pending()}</div></div>`).join('')}`;
+    <div class="award-card akhlaq-card home-award-link"><div class="akhlaq-inner"><div class="akhlaq-medal">☽</div><div><div class="award-label">${akhlaqLabel(displayWeek)}</div><div class="award-winner">${wa.akhlaq || pending()}</div><div class="award-winner-sub">Exemplary character & brotherhood</div></div></div></div>
+    ${games.map((g, i) => `<div class="award-card home-award-link"><div class="award-label">${motmLabel(g.game || i + 1)}</div><div class="award-game">${g.t1} vs ${g.t2}</div><div class="award-winner">${wa['motm' + (g.game || i + 1)] || pending()}</div></div>`).join('')}`;
 }
 
 export function renderStandings() {
@@ -257,16 +258,49 @@ const TEAM_LOGOS = {
   raad: 'raad.jpg',
 };
 
-function teamLogoUrl(name) {
+// Per-team scale factors. Keys must match TEAM_LOGOS keys exactly.
+// transform: translate(-50%,-50%) scale(S) on an absolutely-centred img
+// inside an overflow:hidden crop div — adjust ±0.05 if edges clip.
+const LOGO_SCALE = {
+  jaysh: 2.75,
+  noor: 2.40,
+  dukhaan: 2.50,
+  ansar: 1.725,
+  mujahideen: [1.85, 2.45],
+  raad: 2.30,
+};
+const DEFAULT_LOGO_SCALE = 1.15;
+
+function teamLogoKey(name) {
   const slug = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const key = Object.keys(TEAM_LOGOS).find(k => slug.includes(k) || k.includes(slug));
+  return Object.keys(TEAM_LOGOS).find(k => slug.includes(k) || k.includes(slug)) ?? null;
+}
+
+function teamLogoUrl(name) {
+  const key = teamLogoKey(name);
   return key ? `${getBasePath()}/images/teams/${TEAM_LOGOS[key]}` : null;
 }
 
+function teamEmblemHtml(name) {
+  const teamKey = teamLogoKey(name);
+  const url = teamKey ? `${getBasePath()}/images/teams/${TEAM_LOGOS[teamKey]}` : null;
+  if (url) {
+    const s = LOGO_SCALE[teamKey] ?? DEFAULT_LOGO_SCALE;
+    const scaleVal = Array.isArray(s) ? `${s[0]}, ${s[1]}` : s;
+    return `<div class="team-emblem"><img src="${url}" class="mc-logo-img" alt="${escapeHtmlAttr(name)}" style="transform:scale(${scaleVal})" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;">${initials(name)}</span></div>`;
+  }
+  return `<div class="team-emblem">${initials(name)}</div>`;
+}
+
 function teamLogoHtml(name, side) {
-  const url = teamLogoUrl(name);
+  const teamKey = teamLogoKey(name);
+  const url = teamKey ? `${getBasePath()}/images/teams/${TEAM_LOGOS[teamKey]}` : null;
   const cls = `mc-logo mc-logo-${side}`;
-  if (url) return `<img src="${url}" class="${cls} mc-logo-img" alt="${escapeHtmlAttr(name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="${cls}" style="display:none">${initials(name || '?')}</div>`;
+  if (url) {
+    const s = LOGO_SCALE[teamKey] ?? DEFAULT_LOGO_SCALE;
+    const scaleVal = Array.isArray(s) ? `${s[0]}, ${s[1]}` : s;
+    return `<div class="${cls}"><img src="${url}" class="mc-logo-img" alt="${escapeHtmlAttr(name)}" style="transform:scale(${scaleVal})" onerror="this.closest('.mc-logo').style.display='none';this.closest('.mc-logo').nextElementSibling.style.display='flex'"></div><div class="${cls}" style="display:none">${initials(name || '?')}</div>`;
+  }
   return `<div class="${cls}">${initials(name || '?')}</div>`;
 }
 
@@ -304,7 +338,7 @@ function buildMatchupCard(g, gameId) {
 
   // Away (t2): logo outer-left, name right of logo toward center
   // Home (t1): name toward center, logo outer-right (DOM order: name then logo)
-  return `<div class="matchup-card">
+  return `<div class="matchup-card"${g.week != null ? ` data-week="${g.week}"` : ''}>
     ${header}
     <div class="mc-body">
       <div class="mc-away">${teamLogoHtml(g.t2, 'away')}<span class="mc-team-name mc-away-name">${escapeHtmlAttr(g.t2)}</span></div>
@@ -434,7 +468,7 @@ export function renderSchedule(focusWeek, teamFilter) {
     if (teamFilter) games = games.filter(g => g.t1 === teamFilter || g.t2 === teamFilter);
     if (!games.length) return `<div class="card" style="text-align:center;padding:1.4rem;margin-bottom:0.9rem;"><div style="font-size:0.9rem;color:#c8c0b0;font-style:italic;">${scheduleWeekTitle(w)} — No games${teamFilter ? ' for this team' : ''}.</div></div>`;
     const cards = games.map(g => buildMatchupCard(g, g.gameId || ''));
-    return `<div style="margin-bottom:1.1rem;"><div style="font-family:'Cinzel',serif;font-size:0.84rem;letter-spacing:0.18em;text-transform:uppercase;color:#c8a84b;margin-bottom:0.7rem;">${label}</div><div class="matchups-grid">${cards.join('')}</div></div>`;
+    return `<div data-week="${w}" style="margin-bottom:1.1rem;"><div style="font-family:'Cinzel',serif;font-size:0.84rem;letter-spacing:0.18em;text-transform:uppercase;color:#c8a84b;margin-bottom:0.7rem;">${label}</div><div class="matchups-grid">${cards.join('')}</div></div>`;
   };
 
   const sectionHeader = (label, isCurrent) =>
@@ -504,6 +538,7 @@ export function renderTeams() {
   const teamsGrid = document.getElementById('teams-grid');
   if (!teamsGrid) return;
   const rec = calcStandings();
+  const seeds = calcSeedsPure(config.DB.teams, config.DB.scores);
   const idAttr = (id) => typeof id === 'string' ? `'${String(id).replace(/'/g, "\\'")}'` : id;
   const effectiveCaptain = (t) => {
     const cap = (t.captain || '').trim();
@@ -514,7 +549,10 @@ export function renderTeams() {
   };
   const teamCard = t => {
     const cap = effectiveCaptain(t);
-    return `<div class="team-card" id="tc-${t.id}" data-team-id="${t.id}" data-conf="${escapeHtmlAttr(t.conf || '')}" onclick="toggleRoster(${idAttr(t.id)})"><div class="team-emblem">${initials(t.name)}</div><div class="team-name">${t.name}</div><div class="team-captain">Capt: ${cap || '—'}</div><div class="team-record">${rec[t.name] ? rec[t.name].w + '-' + rec[t.name].l : '0-0'}</div></div>`;
+    const r = rec[t.name];
+    const record = r ? `${r.w}-${r.l}` : '0-0';
+    const seed = seeds[t.name] ?? 'TBD';
+    return `<div class="team-card" id="tc-${t.id}" data-team-id="${t.id}" data-conf="${escapeHtmlAttr(t.conf || '')}" onclick="toggleRoster(${idAttr(t.id)})">${teamEmblemHtml(t.name)}<div class="team-card-info"><div class="team-name">${t.name}</div><div class="team-captain">Capt: ${cap || '—'}</div></div><div class="team-card-stats"><div class="team-stat-row"><span class="team-stat-label">Record</span><span class="team-stat-value team-record-val">${record}</span></div><div class="team-stat-row"><span class="team-stat-label">Seed</span><span class="team-stat-value team-seed-val">${seed}</span></div></div></div>`;
   };
   const confIds = new Set(getConferences().map(c => c.id || c.name));
   const confs = [...getConferences().map(c => c.id || c.name)];
@@ -555,7 +593,10 @@ export function toggleRoster(id) {
   const others = (t.players || []).filter(p => String(p).trim().toLowerCase() !== captainNorm).sort((a, b) => a.localeCompare(b));
   const rosterList = captain ? [captain, ...others] : others;
   const capDisplay = captain || '—';
-  if (rosterContent) rosterContent.innerHTML = `<div style="margin-bottom:0.9rem;"><div style="font-family:'Cinzel',serif;font-size:1rem;color:#c8a84b">${t.name}</div><div style="font-size:0.8rem;color:#2fa89a;letter-spacing:0.1em;text-transform:uppercase;margin-top:0.12rem">${confLabel(t.conf)} · Capt: ${capDisplay} · ${rec[t.name] ? rec[t.name].w + '-' + rec[t.name].l : '0-0'}</div></div>${rosterList.map((p, i) => '<div class="roster-player"><span class="roster-num">' + (i + 1) + '</span>' + p + '</div>').join('')}`;
+  if (rosterContent) rosterContent.innerHTML = `<div style="margin-bottom:0.9rem;"><div style="font-family:'Cinzel',serif;font-size:1rem;color:#c8a84b">${t.name}</div><div style="font-size:0.8rem;color:#2fa89a;letter-spacing:0.1em;text-transform:uppercase;margin-top:0.12rem">${confLabel(t.conf)}</div></div>${rosterList.map((p, i) => '<div class="roster-player"><span class="roster-num">' + (i + 1) + '</span>' + p + '</div>').join('')}`;
+  if (window.innerWidth <= 768 && tc) {
+    tc.insertAdjacentElement('afterend', panel);
+  }
   panel.classList.add('open');
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -564,7 +605,13 @@ export function closeRoster() {
   activeTeam = null;
   document.querySelectorAll('.team-card').forEach(c => c.classList.remove('selected'));
   const rosterPanel = document.getElementById('roster-panel');
-  if (rosterPanel) rosterPanel.classList.remove('open');
+  if (!rosterPanel) return;
+  rosterPanel.classList.remove('open');
+  // Restore panel to its default position (after teams-grid) if it was moved for mobile
+  const teamsGrid = document.getElementById('teams-grid');
+  if (teamsGrid && rosterPanel.previousElementSibling !== teamsGrid) {
+    teamsGrid.insertAdjacentElement('afterend', rosterPanel);
+  }
 }
 
 export function renderStats() {
@@ -761,7 +808,7 @@ export function renderAbout() {
       return sp ? `${confName} Conference — Brought to you by ${sp}` : '';
     })();
     const taglineText = (customTagline != null && String(customTagline).trim() !== '') ? String(customTagline) : defaultTagline;
-    const taglineHtml = taglineText ? `<div class="about-conf-tagline" id="about-conf-tagline-${slug}" data-conf-slug="${slug}" style="font-size:0.75rem;color:#c8a84b;font-style:italic;margin-bottom:0.5rem;white-space:pre-wrap;">${String(taglineText).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</div>` : `<div class="about-conf-tagline" id="about-conf-tagline-${slug}" data-conf-slug="${slug}" style="font-size:0.75rem;color:#c8a84b;font-style:italic;margin-bottom:0.5rem;min-height:1.2em;"></div>`;
+    const taglineHtml = taglineText ? `<div class="about-conf-tagline" id="about-conf-tagline-${slug}" data-conf-slug="${slug}" style="font-size:0.75rem;color:#c8a84b;font-style:italic;margin-bottom:0.5rem;white-space:pre-wrap;">${highlightSponsor(taglineText).replace(/\n/g, '<br>')}</div>` : `<div class="about-conf-tagline" id="about-conf-tagline-${slug}" data-conf-slug="${slug}" style="font-size:0.75rem;color:#c8a84b;font-style:italic;margin-bottom:0.5rem;min-height:1.2em;"></div>`;
     const teams = (config.DB.teams || []).filter(t => t.conf === confId).map(t => `<div class="conf-team-bullet">${t.name}</div>`).join('');
     const color = accordionColors[i % accordionColors.length];
     return `<div class="conf-accordion"><div class="conf-acc-header" onclick="toggleAcc('${slug}')"><div class="conf-acc-title"><div class="conf-dot" style="background:${color}"></div><span id="about-${slug}-label">${confLabel(confId)}</span></div><span class="conf-acc-arrow" id="arrow-${slug}">▾</span></div><div class="conf-acc-body" id="body-${slug}">${taglineHtml}${teams}</div></div>`;

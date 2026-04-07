@@ -27,32 +27,61 @@ function clearError() {
 }
 
 function populateSeasonDropdown(seasons, defaultSlug) {
-  const sel = document.querySelector('.nav-season-select');
-  if (!sel) return;
-  sel.innerHTML = '';
-  (seasons || []).forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s.slug;
-    opt.textContent = s.label + (s.is_current ? ' · Current' : '');
-    sel.appendChild(opt);
+  document.querySelectorAll('.nav-season-select').forEach(sel => {
+    sel.innerHTML = '';
+    (seasons || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.slug;
+      opt.textContent = s.label + (s.is_current ? ' · Current' : '');
+      sel.appendChild(opt);
+    });
+    sel.value = defaultSlug || (seasons?.[0]?.slug);
   });
-  sel.value = defaultSlug || (seasons?.[0]?.slug);
 }
 
-function showPage(id) {
+function showPage(id, skipPush = false) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + id).classList.add('active');
+  const pageEl = document.getElementById('page-' + id);
+  if (!pageEl) { showPage('home', skipPush); return; }
+  pageEl.classList.add('active');
   document.querySelectorAll('.nav-tab').forEach(b => {
     if (b.textContent.toLowerCase().trim() === id.toLowerCase()) b.classList.add('active');
   });
   window.scrollTo(0, 0);
+  if (!skipPush) history.pushState({ page: id }, '', '#' + id);
 }
+
+window.addEventListener('popstate', e => {
+  const id = (e.state && e.state.page) || location.hash.slice(1) || 'home';
+  showPage(id, true);
+});
 
 function goToTeam(id) {
   showPage('teams');
   setTimeout(() => toggleRoster(id), 80);
 }
+
+function navToMatchup(week) {
+  showPage('schedule');
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`#page-schedule [data-week="${week}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+// Delegated click: home matchup cards → schedule tab at that week
+document.addEventListener('click', e => {
+  if (!e.target.closest('#home-matchups')) return;
+  if (e.target.closest('.schedule-expand-btn')) return;
+  const card = e.target.closest('.matchup-card');
+  if (card && card.dataset.week) navToMatchup(parseInt(card.dataset.week));
+});
+
+// Delegated click: home award cards → awards tab
+document.addEventListener('click', e => {
+  if (e.target.closest('#home-awards')) showPage('awards');
+});
 
 async function changeSeason(val) {
   if (!val || val === config.currentSeasonSlug) return;
@@ -126,6 +155,8 @@ async function loadAll() {
 
   populateSeasonDropdown(seasons, defaultSlug);
   renderAll();
+  const initialPage = location.hash.slice(1).replace(/[^a-z]/g, '') || 'home';
+  showPage(initialPage, true);
 }
 
 window.showPage = showPage;
@@ -134,6 +165,7 @@ window.toggleRoster = toggleRoster;
 window.closeRoster = closeRoster;
 window.closeBoxScoreFullscreen = closeBoxScoreFullscreen;
 window.goToTeam = goToTeam;
+window.navToMatchup = navToMatchup;
 window.toggleAcc = toggleAcc;
 window.renderSchedule = renderSchedule;
 window.renderScores = renderScores;
@@ -164,5 +196,46 @@ function initBoxScoreFullscreen() {
   }, { passive: false });
 }
 
+// Mobile nav drawer
+function initNavDrawer() {
+  const hamburger = document.getElementById('nav-hamburger');
+  const drawer = document.getElementById('nav-drawer');
+  const overlay = document.getElementById('nav-drawer-overlay');
+  const closeBtn = document.getElementById('nav-drawer-close');
+  if (!hamburger || !drawer || !overlay) return;
+
+  function openDrawer() {
+    drawer.classList.add('open');
+    overlay.classList.add('open');
+    hamburger.setAttribute('aria-expanded', 'true');
+    drawer.setAttribute('aria-hidden', 'false');
+  }
+  function closeDrawer() {
+    drawer.classList.remove('open');
+    overlay.classList.remove('open');
+    hamburger.setAttribute('aria-expanded', 'false');
+    drawer.setAttribute('aria-hidden', 'true');
+  }
+
+  hamburger.addEventListener('click', openDrawer);
+  overlay.addEventListener('click', closeDrawer);
+  if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
+
+  // Close drawer and sync active state when a drawer item is tapped
+  drawer.querySelectorAll('.nav-drawer-item').forEach(item => {
+    item.addEventListener('click', () => setTimeout(closeDrawer, 80));
+  });
+}
+
+// Keep drawer active item in sync with current page
+const _origShowPage = window.showPage;
+window.showPage = function(id, skipPush) {
+  _origShowPage(id, skipPush);
+  document.querySelectorAll('.nav-drawer-item').forEach(el => {
+    el.classList.toggle('active', el.getAttribute('href') === '#' + id);
+  });
+};
+
+initNavDrawer();
 initBoxScoreFullscreen();
 loadAll();

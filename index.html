@@ -5,27 +5,53 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Faraj League</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/main.css?v=20260406d">
+<link rel="stylesheet" href="css/main.css?v=20260407f">
 </head>
 <body>
 <nav>
   <div class="nav-top">
-    <div class="nav-logo" onclick="showPage('home')">Faraj League</div>
+    <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+      <span class="nav-hamburger-label">Menu</span>
+    </button>
+    <a class="nav-logo" href="#home" onclick="showPage('home');return false;">Faraj League</a>
     <div class="nav-spacer"></div>
     <select class="nav-season-select" onchange="changeSeason(this.value)">
       <option value="spring2026">Spring 2026 · Current</option>
     </select>
   </div>
   <div class="nav-tabs">
-    <button class="nav-tab active" onclick="showPage('home')">Home</button>
-    <button class="nav-tab" onclick="showPage('standings')">Standings</button>
-    <button class="nav-tab" onclick="showPage('schedule')">Schedule</button>
-    <button class="nav-tab" onclick="showPage('teams')">Teams</button>
-    <button class="nav-tab" onclick="showPage('stats')">Stats</button>
-    <button class="nav-tab" onclick="showPage('awards')">Awards</button>
-    <button class="nav-tab" onclick="showPage('media')">Media</button>
-    <button class="nav-tab" onclick="showPage('about')">About</button>
-    <button class="nav-tab" onclick="showPage('sponsors')">Sponsors</button>
+    <a class="nav-tab" href="#home" onclick="showPage('home');return false;">Home</a>
+    <a class="nav-tab" href="#standings" onclick="showPage('standings');return false;">Standings</a>
+    <a class="nav-tab" href="#schedule" onclick="showPage('schedule');return false;">Schedule</a>
+    <a class="nav-tab" href="#teams" onclick="showPage('teams');return false;">Teams</a>
+    <a class="nav-tab" href="#stats" onclick="showPage('stats');return false;">Stats</a>
+    <a class="nav-tab" href="#awards" onclick="showPage('awards');return false;">Awards</a>
+    <a class="nav-tab" href="#media" onclick="showPage('media');return false;">Media</a>
+    <a class="nav-tab" href="#about" onclick="showPage('about');return false;">About</a>
+    <a class="nav-tab" href="#sponsors" onclick="showPage('sponsors');return false;">Sponsors</a>
+  </div>
+</nav>
+<div class="nav-drawer-overlay" id="nav-drawer-overlay"></div>
+<nav class="nav-drawer" id="nav-drawer" aria-hidden="true">
+  <div class="nav-drawer-header">
+    <span class="nav-drawer-logo">Faraj League</span>
+    <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close menu">✕</button>
+  </div>
+  <a class="nav-drawer-item" href="#home" onclick="showPage('home');return false;">Home</a>
+  <a class="nav-drawer-item" href="#standings" onclick="showPage('standings');return false;">Standings</a>
+  <a class="nav-drawer-item" href="#schedule" onclick="showPage('schedule');return false;">Schedule</a>
+  <a class="nav-drawer-item" href="#teams" onclick="showPage('teams');return false;">Teams</a>
+  <a class="nav-drawer-item" href="#stats" onclick="showPage('stats');return false;">Stats</a>
+  <a class="nav-drawer-item" href="#awards" onclick="showPage('awards');return false;">Awards</a>
+  <a class="nav-drawer-item" href="#media" onclick="showPage('media');return false;">Media</a>
+  <a class="nav-drawer-item" href="#about" onclick="showPage('about');return false;">About</a>
+  <a class="nav-drawer-item" href="#sponsors" onclick="showPage('sponsors');return false;">Sponsors</a>
+  <div class="nav-drawer-footer">
+    <div class="nav-drawer-season-label">Season</div>
+    <select class="nav-season-select nav-drawer-season" onchange="changeSeason(this.value)">
+      <option value="spring2026">Spring 2026 · Current</option>
+    </select>
   </div>
 </nav>
 
@@ -56,24 +82,21 @@
     </div>
   </div>
   <div class="quick-stats">
-    <div class="qs-item"><div class="qs-num">6</div><div class="qs-label">Teams</div></div>
-    <div class="qs-item"><div class="qs-num">42</div><div class="qs-label">Players</div></div>
-    <div class="qs-item"><div class="qs-num">2</div><div class="qs-label">Conferences</div></div>
-    <div class="qs-item"><div class="qs-num" id="weeks-played">0</div><div class="qs-label">Weeks Played</div></div>
+    <a class="qs-item" href="#teams" onclick="showPage('teams');return false;"><div class="qs-num">6</div><div class="qs-label">Teams</div></a>
+    <a class="qs-item" href="#teams" onclick="showPage('teams');return false;"><div class="qs-num">42</div><div class="qs-label">Players</div></a>
+    <a class="qs-item" href="#teams" onclick="showPage('teams');return false;"><div class="qs-num">2</div><div class="qs-label">Conferences</div></a>
+    <a class="qs-item" href="#schedule" onclick="showPage('schedule');return false;"><div class="qs-num" id="weeks-played">0</div><div class="qs-label">Weeks Played</div></a>
   </div>
   <div class="section">
-    <p class="section-sub" id="home-standings-sub">Spring 2026</p>
-    <h2 class="section-title" id="home-standings-title">Standings</h2>
+    <a class="home-section-link" href="#standings" onclick="showPage('standings');return false;"><p class="section-sub" id="home-standings-sub">Spring 2026</p><h2 class="section-title" id="home-standings-title">Standings</h2></a>
     <div class="section-line"></div>
     <div class="home-standings-wrap" id="home-standings"></div>
     <hr class="section-divider">
-    <p class="section-sub" id="home-matchup-sub">Week 1 · Upcoming</p>
-    <h2 class="section-title">Recent Matchups</h2>
+    <a class="home-section-link" href="#schedule" onclick="showPage('schedule');return false;"><p class="section-sub" id="home-matchup-sub">Week 1 · Upcoming</p><h2 class="section-title">Recent Matchups</h2></a>
     <div class="section-line"></div>
     <div class="matchups-grid" id="home-matchups"><div class="loading">Loading...</div></div>
     <div style="margin-top:2rem;">
-      <p class="section-sub" id="home-awards-sub">Week 1 · Latest</p>
-      <h2 class="section-title">Recent Awards</h2>
+      <a class="home-section-link" href="#awards" onclick="showPage('awards');return false;"><p class="section-sub" id="home-awards-sub">Week 1 · Latest</p><h2 class="section-title">Recent Awards</h2></a>
       <div class="section-line"></div>
       <div class="home-awards-grid" id="home-awards"><div class="loading">Loading...</div></div>
     </div>
