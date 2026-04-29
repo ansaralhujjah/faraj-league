@@ -242,11 +242,50 @@ a.qs-item:hover .qs-num{color:#ddb94e;}
 .stats-leaders{display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:1.2rem;}
 .stat-leader-card{background:#0e2535;border:1px solid rgba(200,168,75,0.2);border-radius:4px;padding:1.1rem;text-align:center;}
 .slc-rank{font-size:0.73rem;color:#c8c0b0;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.35rem;}
-.slc-name{font-family:'Cinzel',serif;font-size:1rem;color:#c8a84b;margin-bottom:0.2rem;line-height:1.3;}
+.slc-name{font-family:'Cinzel',serif;font-size:1rem;color:#f5f0e8;margin-bottom:0.2rem;line-height:1.3;}
 .slc-team{font-size:0.76rem;color:#2fa89a;letter-spacing:0.05em;margin-bottom:0.55rem;}
 .slc-ppg{font-family:'Cinzel',serif;font-size:1.5rem;color:#2fa89a;font-weight:600;margin-bottom:0.15rem;}
 .slc-sub{font-size:0.75rem;color:#c8c0b0;}
 @media(max-width:500px){.stat-leader-card{padding:0.7rem 0.5rem;}.slc-name{font-size:0.82rem;}.slc-ppg{font-size:1.15rem;}.slc-sub{font-size:0.68rem;}}
+/* MVP Podium */
+.mvp-podium{display:flex;align-items:flex-end;gap:0.75rem;margin-bottom:1.4rem;width:100%;}
+.mvp-podium-card{background:#0e2535;border:2px solid;border-radius:6px;flex:1;min-width:0;display:flex;flex-direction:column;position:relative;}
+.mvp-podium-badge{display:flex;justify-content:center;margin-top:-26px;margin-bottom:0;}
+.mvp-podium-body{display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.85rem 0.85rem;flex:1;}
+.mvp-podium-logo{flex-shrink:0;align-self:stretch;display:flex;align-items:center;}
+.mvp-podium-logo .team-emblem{width:72px;height:72px;font-size:1.2rem;}
+.mvp-podium-rank1 .mvp-podium-logo .team-emblem{width:90px;height:90px;font-size:1.5rem;}
+.mvp-podium-info{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-evenly;gap:0;align-self:stretch;}
+.mvp-podium-player{font-family:'Cinzel',serif;font-size:0.9rem;color:#f5f0e8;font-weight:600;letter-spacing:0.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mvp-podium-team{font-family:'Cinzel',serif;font-size:0.85rem;font-weight:700;letter-spacing:0.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mvp-podium-rank1 .mvp-podium-team{font-size:1rem;}
+.mvp-podium-ppg{font-family:'Cinzel',serif;font-size:0.75rem;font-weight:600;color:#f5f0e8;}
+.mvp-podium-rank1 .mvp-podium-ppg{font-size:0.75rem;}
+@media(max-width:500px){
+  .mvp-podium{flex-direction:column;align-items:stretch;gap:0.5rem;}
+  .mvp-podium-rank1{order:-1;padding-top:0;padding-bottom:0;}
+  .mvp-podium-rank2{padding-top:0;padding-bottom:0;}
+  .mvp-podium-rank3{padding-top:0;padding-bottom:0;}
+  .mvp-podium-card{min-height:110px;}
+  .mvp-podium-badge{margin-top:0.5rem;margin-bottom:-14px;}
+  .mvp-podium-body{flex:1;flex-direction:row;align-items:center;text-align:left;gap:0.75rem;padding:0.4rem 0.85rem 0.7rem;}
+  .mvp-podium-logo{align-self:stretch;display:flex;align-items:center;}
+  .mvp-podium-logo .team-emblem{width:72px;height:72px;font-size:1.2rem;}
+  .mvp-podium-rank1 .mvp-podium-logo .team-emblem{width:72px;height:72px;font-size:1.2rem;}
+  .mvp-podium-info{align-items:flex-start;justify-content:space-evenly;align-self:stretch;}
+  .mvp-podium-team-desktop{display:none;}
+  .mvp-podium-player{font-size:0.9rem;}
+  .mvp-podium-ppg{font-size:0.75rem;}
+  .mvp-podium-rank1 .mvp-podium-ppg{font-size:0.75rem;}
+}
+.mvp-ladder-list{overflow:hidden;margin-top:0;}
+.mvp-ladder-row{display:flex;align-items:center;gap:0.75rem;padding:0.7rem 1.1rem;border-bottom:1px solid rgba(200,168,75,0.08);}
+.mvp-ladder-row:last-child{border-bottom:none;}
+.mvp-ladder-rank{font-size:0.78rem;color:#c8c0b0;width:2rem;flex-shrink:0;text-align:right;}
+.mvp-ladder-name{font-family:'Cinzel',serif;font-size:0.9rem;color:#f5f0e8;font-weight:600;flex:1;}
+.mvp-ladder-team{font-size:0.76rem;color:#2fa89a;letter-spacing:0.05em;min-width:6rem;}
+.mvp-ladder-ppg{font-size:0.82rem;color:#c8a84b;text-align:right;min-width:3.5rem;}
+@media(max-width:500px){.mvp-ladder-row{padding:0.6rem 0.75rem;gap:0.5rem;}.mvp-ladder-name{font-size:0.8rem;}.mvp-ladder-team{min-width:4rem;font-size:0.7rem;}}
 .teams-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;}
 .team-card{background:#0e2535;border:1px solid rgba(200,168,75,0.2);border-radius:4px;padding:0.9rem 1rem;cursor:pointer;transition:border-color 0.2s,transform 0.15s;display:flex;align-items:center;gap:0.85rem;}
 .team-card:hover{border-color:#2fa89a;transform:translateY(-2px);}

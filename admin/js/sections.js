@@ -2130,6 +2130,109 @@ export async function renderAwards(content, ctx) {
       renderAwards(content, ctx);
     } catch (e) { document.getElementById('awards-msg').innerHTML = `<p class="msg error">${e.message}</p>`; }
   };
+
+}
+
+export async function renderAdminMvpLadder(content, ctx) {
+  const { adminFetch } = ctx;
+  const seasonId = window.adminSeasonId;
+  if (!seasonId || !content) return;
+
+  const { config: adminConfig } = await importRootJs('config.js');
+  const allPlayers = [];
+  (adminConfig.DB?.teams || []).forEach(t => {
+    (t.roster || []).forEach(p => { allPlayers.push({ id: p.id, name: p.name, team: t.name }); });
+  });
+  allPlayers.sort((a, b) => a.name.localeCompare(b.name));
+
+  let currentLadderData = {};
+  try {
+    const raw = adminConfig.DB?.contentBlocks?.mvp_ladder_data;
+    if (raw) currentLadderData = JSON.parse(raw);
+  } catch (_) {}
+
+  const currentWeek = adminConfig.CURRENT_WEEK || 1;
+  const weekOpts = Array.from({ length: currentWeek }, (_, i) => i + 1)
+    .map(w => `<option value="${w}"${w === currentWeek ? ' selected' : ''}>Week ${w}${w === currentWeek ? ' (Current)' : ''}</option>`)
+    .join('');
+
+  content.innerHTML = `
+    <h4 style="color:#c8a84b;margin:0 0 0.7rem;font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;">Edit Midseason MVP Ranking</h4>
+    <div id="ladder-msg" style="margin-bottom:0.5rem;min-height:1.2rem;"></div>
+    <div style="margin-bottom:1rem;">
+      <label style="color:#c8c0b0;font-size:0.85rem;margin-right:0.5rem;">Save to Week</label>
+      <select id="ladder-week-select" style="background:#0a1f2e;border:1px solid rgba(200,168,75,0.3);color:#f5f0e8;padding:0.4rem 0.6rem;border-radius:4px;">${weekOpts}</select>
+      <div style="margin-top:0.4rem;font-size:0.78rem;color:#8a8580;">Ladder shows from this week onward until overwritten by a later week's entry.</div>
+    </div>
+    <div id="ladder-slots" style="display:flex;flex-direction:column;gap:0.45rem;margin-bottom:1rem;"></div>
+    <button id="ladder-save-btn" style="padding:0.5rem 1.4rem;background:#c8a84b;color:#060f1a;border:none;border-radius:4px;font-weight:700;cursor:pointer;font-size:0.9rem;">Save Ladder</button>`;
+
+  const slotsEl = content.querySelector('#ladder-slots');
+  const weekSelEl = content.querySelector('#ladder-week-select');
+  const playerOptHtml = `<option value="">— Select player —</option>` +
+    allPlayers.map(p => `<option value="${p.id}">${p.name} (${p.team})</option>`).join('');
+
+  const DEFAULT_NAMES = ['Saif', 'Alireza', 'Raamiz', 'Tahir', 'Dayyem', 'Imran', 'Raza', 'Aun Ali', 'Hyder', 'Humza Hussain'];
+  function defaultLadderIds() {
+    return DEFAULT_NAMES.map(n => {
+      const nl = n.toLowerCase();
+      const p = allPlayers.find(pl => pl.name.toLowerCase() === nl || pl.name.toLowerCase().startsWith(nl + ' ') || pl.name.toLowerCase().startsWith(nl));
+      return p?.id || '';
+    });
+  }
+
+  function buildSlots(ladderIds = []) {
+    slotsEl.innerHTML = '';
+    for (let i = 0; i < 10; i++) {
+      const selectedId = ladderIds[i] || '';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:0.6rem;';
+      row.innerHTML = `
+        <span style="color:#c8a84b;font-family:'Cinzel',serif;font-size:0.82rem;width:1.8rem;text-align:right;flex-shrink:0;">#${i + 1}</span>
+        <input type="text" placeholder="Search..." style="padding:0.35rem 0.5rem;background:#0a1f2e;border:1px solid rgba(200,168,75,0.2);color:#c8c0b0;border-radius:4px;font-size:0.82rem;width:120px;flex-shrink:0;" />
+        <select style="flex:1;padding:0.35rem 0.5rem;background:#0a1f2e;border:1px solid rgba(200,168,75,0.2);color:#f5f0e8;border-radius:4px;font-size:0.85rem;">${playerOptHtml}</select>`;
+      slotsEl.appendChild(row);
+      const searchInput = row.querySelector('input');
+      const select = row.querySelector('select');
+      if (selectedId) select.value = selectedId;
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.toLowerCase();
+        Array.from(select.options).forEach(opt => {
+          opt.hidden = q.length > 0 && opt.value !== '' && !opt.textContent.toLowerCase().includes(q);
+        });
+      });
+    }
+  }
+
+  function loadWeekLadder(w) {
+    const keys = Object.keys(currentLadderData).map(Number).filter(k => k <= w).sort((a, b) => b - a);
+    buildSlots(keys.length > 0 ? (currentLadderData[String(keys[0])] || []) : defaultLadderIds());
+  }
+
+  loadWeekLadder(currentWeek);
+  weekSelEl.addEventListener('change', () => loadWeekLadder(parseInt(weekSelEl.value)));
+
+  content.querySelector('#ladder-save-btn').addEventListener('click', async () => {
+    const msgEl = content.querySelector('#ladder-msg');
+    const week = parseInt(weekSelEl.value);
+    const ids = Array.from(slotsEl.querySelectorAll('select')).map(s => s.value).filter(Boolean);
+    currentLadderData[String(week)] = ids;
+    try {
+      await adminFetch('admin-content', {
+        method: 'POST',
+        body: JSON.stringify([{ key: 'mvp_ladder_data', value: JSON.stringify(currentLadderData), season_id: seasonId }]),
+      });
+      if (adminConfig.DB?.contentBlocks) adminConfig.DB.contentBlocks.mvp_ladder_data = JSON.stringify(currentLadderData);
+      msgEl.innerHTML = '<span style="color:#2fa89a;font-size:0.85rem;">Saved.</span>';
+      setTimeout(() => { msgEl.innerHTML = ''; }, 2500);
+      const awardsWeekEl = document.getElementById('awards-week-select');
+      if (awardsWeekEl && typeof window.renderAwards === 'function') {
+        window.renderAwards(parseInt(awardsWeekEl.value) || week);
+      }
+    } catch (err) {
+      msgEl.innerHTML = `<span style="color:#e07070;font-size:0.85rem;">${err.message}</span>`;
+    }
+  });
 }
 
 export async function renderStats(content, ctx) {

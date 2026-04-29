@@ -741,6 +741,94 @@ export function renderAwards(week) {
   if (saChamp) saChamp.textContent = sa.champ || `${config.currentSeasonLabel} — In Progress`;
   if (saMvp) saMvp.textContent = sa.mvp || 'Season in progress';
   if (saScoring) saScoring.textContent = sa.scoring || 'Season in progress';
+  renderMvpLadder(w);
+}
+
+export function renderMvpLadder(week) {
+  const wrap = document.getElementById('awards-mvp-ladder-wrap');
+  if (!wrap) return;
+
+  let ladderPlayerIds = null;
+  try {
+    const raw = config.DB.contentBlocks?.mvp_ladder_data;
+    if (raw) {
+      const allData = JSON.parse(raw);
+      const keys = Object.keys(allData).map(Number).filter(k => k <= week).sort((a, b) => b - a);
+      if (keys.length > 0) ladderPlayerIds = allData[String(keys[0])];
+    }
+  } catch (_) {}
+
+  if (!ladderPlayerIds?.length) { wrap.innerHTML = ''; return; }
+
+  const playerMap = {};
+  (config.DB.teams || []).forEach(t => {
+    (t.roster || []).forEach(p => { playerMap[p.id] = { name: p.name, team: t.name }; });
+  });
+
+  const defs = config.DB.statDefinitions || [];
+  const pointsDef = defs.find(d => d.slug === 'points');
+  const statsMap = {};
+  (config.DB.stats || []).forEach(s => {
+    const pts = pointsDef ? (s.statValues?.[pointsDef.id] || 0) : s.total;
+    statsMap[s.name] = s.gp > 0 ? pts / s.gp : null;
+  });
+
+  const entries = ladderPlayerIds.map((id, i) => {
+    const p = playerMap[id];
+    if (!p) return null;
+    return { rank: i + 1, name: p.name, team: p.team, ppg: statsMap[p.name] ?? null };
+  }).filter(Boolean);
+
+  if (!entries.length) { wrap.innerHTML = ''; return; }
+
+  const ppgDisplay = (ppg) => (ppg != null && ppg > 0) ? ppg.toFixed(1) + ' PPG' : '—';
+  const top3 = entries.slice(0, 3);
+  const rest = entries.slice(3);
+
+  const RANK_META = {
+    1: { color: '#c8a84b', shadow: 'rgba(200,168,75,0.35)', label: 'gold' },
+    2: { color: '#a8b8c8', shadow: 'rgba(168,184,200,0.3)', label: 'silver' },
+    3: { color: '#c8845a', shadow: 'rgba(200,132,90,0.28)', label: 'bronze' },
+  };
+
+  // Shield SVG badge: rank number inside a shield shape
+  const shieldBadge = (rank) => {
+    const m = RANK_META[rank];
+    return `<svg viewBox="0 0 60 72" width="40" height="48" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto 0.3rem;filter:drop-shadow(0 0 8px ${m.shadow});">
+      <defs><linearGradient id="sg${rank}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${m.color}" stop-opacity="1"/><stop offset="100%" stop-color="${m.color}" stop-opacity="0.55"/></linearGradient></defs>
+      <path d="M30 2 L58 14 L58 36 C58 54 30 70 30 70 C30 70 2 54 2 36 L2 14 Z" fill="url(#sg${rank})" stroke="${m.color}" stroke-width="2"/>
+      <text x="30" y="44" text-anchor="middle" dominant-baseline="middle" font-family="Cinzel,serif" font-size="24" font-weight="700" fill="#060f1a">${rank}</text>
+    </svg>`;
+  };
+
+  // Podium order: 2nd left, 1st center, 3rd right
+  const podiumOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
+  const podiumHtml = podiumOrder.map(e => {
+    const m = RANK_META[e.rank];
+    return `<div class="mvp-podium-card mvp-podium-rank${e.rank}" style="border-color:${m.color};box-shadow:0 0 18px ${m.shadow};">
+      <div class="mvp-podium-badge">${shieldBadge(e.rank)}</div>
+      <div class="mvp-podium-body">
+        <div class="mvp-podium-logo">${teamEmblemHtml(e.team)}</div>
+        <div class="mvp-podium-info">
+          <div class="mvp-podium-player">${escapeHtmlAttr(e.name)}</div>
+          <div class="mvp-podium-team mvp-podium-team-desktop" style="color:${m.color};">${escapeHtmlAttr(e.team)}</div>
+          <div class="mvp-podium-ppg">${ppgDisplay(e.ppg)}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const listHtml = rest.map(e =>
+    `<div class="mvp-ladder-row"><span class="mvp-ladder-rank">#${e.rank}</span><span class="mvp-ladder-name">${escapeHtmlAttr(e.name)}</span><span class="mvp-ladder-team">${escapeHtmlAttr(e.team)}</span><span class="mvp-ladder-ppg">${ppgDisplay(e.ppg)}</span></div>`
+  ).join('');
+
+  wrap.innerHTML = `
+    <hr class="section-divider">
+    <p class="section-sub">Mid Season Awards</p>
+    <h2 class="section-title">Midseason MVP Ranking</h2>
+    <div class="section-line"></div>
+    <div class="mvp-podium">${podiumHtml}</div>
+    ${rest.length ? `<div class="mvp-ladder-list card">${listHtml}</div>` : ''}`;
 }
 
 export function renderPowerRankings(week) {
